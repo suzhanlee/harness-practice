@@ -1,0 +1,22 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Buy groceries",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": 2,
+      "title": "Read book",
+      "status": "done",
+      "priority": "low"
+    },
+    {
+      "id": 3,
+      "title": "Write report",
+      "status": "pending",
+      "priority": "medium"
+    }
+  ]
+}
