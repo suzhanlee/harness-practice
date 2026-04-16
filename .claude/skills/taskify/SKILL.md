@@ -41,10 +41,10 @@ jq 'if (.requirements | type) == "array" then "valid" else "invalid: .requiremen
 
 **1-3. 필수 필드 누락 검사**
 ```bash
-jq '.requirements[] | select(.index == null or .content == null) | "MISSING FIELDS: \(.)"' \
+jq '[.requirements[] | select(.index == null or .content == null)] | if length == 0 then "OK: no missing fields" else "MISSING FIELDS: \(.)" end' \
   .dev/requirements/requirements.json
 ```
-누락 항목이 있으면 해당 index를 사용자에게 보고하고 중단한다.
+`"MISSING FIELDS: ..."` 가 출력되면 해당 index를 사용자에게 보고하고 중단한다.
 
 **1-4. 요구사항 목록 추출**
 ```bash
@@ -115,22 +115,30 @@ mkdir -p .dev/task
 }
 ```
 
-**4-3. 저장 후 구조 검증**
+**4-3. 저장 후 구조 검증** (검사마다 개별 실행하여 결과를 명확히 확인한다)
+
 ```bash
-# tasks 배열 존재 여부
-jq 'if (.tasks | type) == "array" then "valid" else "invalid" end' .dev/task/spec.json
-
-# 필수 필드 누락 task 검사
-jq '.tasks[] | select(.action == null or .verification == null or .step == null) | "INCOMPLETE: \(.action // "unknown")"' \
-  .dev/task/spec.json
-
-# step이 빈 배열인 task 검사
-jq '.tasks[] | select((.step | length) == 0) | .action' .dev/task/spec.json
-
-# 최종 task 수 확인
-jq '.tasks | length' .dev/task/spec.json
+# [검사 1] tasks 배열 존재 여부
+jq 'if (.tasks | type) == "array" then "OK: tasks is array" else "INVALID: .tasks must be array" end' .dev/task/spec.json
 ```
-검증 실패 항목이 있으면 해당 task를 수정 후 재저장한다.
+
+```bash
+# [검사 2] 필수 필드 누락 task 검사
+jq '[.tasks[] | select(.action == null or .verification == null or .step == null)] | if length == 0 then "OK: no incomplete tasks" else map("INCOMPLETE: \(.action // "unknown")") end' \
+  .dev/task/spec.json
+```
+
+```bash
+# [검사 3] step이 빈 배열인 task 검사
+jq '[.tasks[] | select((.step | length) == 0) | .action] | if length == 0 then "OK: all tasks have steps" else "EMPTY STEPS: \(.)" end' \
+  .dev/task/spec.json
+```
+
+```bash
+# [검사 4] 최종 task 수 확인
+jq '"task count: \(.tasks | length)"' .dev/task/spec.json
+```
+`"INVALID"` 또는 `"INCOMPLETE"` 또는 `"EMPTY STEPS"` 가 출력된 항목은 수정 후 해당 검사만 재실행한다.
 
 ### Phase 5: 완료 보고
 
