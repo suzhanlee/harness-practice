@@ -3,7 +3,7 @@
     {
       "id": 1,
       "title": "Buy groceries",
-      "status": "pending",
+      "status": "done",
       "priority": "high"
     },
     {
@@ -17,6 +17,18 @@
       "title": "Write report",
       "status": "pending",
       "priority": "medium"
+    },
+    {
+      "id": 5,
+      "title": "긴급 작업",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": 6,
+      "title": "짧은 옵션",
+      "status": "done",
+      "priority": "low"
     }
   ]
 }
