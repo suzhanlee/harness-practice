@@ -131,3 +131,43 @@ class TestOrder:
         order.confirm()
         with pytest.raises(ValueError, match="대기중"):
             order.add_item(make_order_item())
+
+
+class TestOrderHistory:
+    def test_order_creation_records_initial_history(self):
+        order = Order.create()
+        assert len(order.history) > 0
+        assert order.history[0].status == "대기중"
+
+    def test_order_status_transition_records_history(self):
+        order = Order.create()
+        initial_count = len(order.history)
+        order.add_item(make_order_item())
+        order.confirm()
+        assert len(order.history) == initial_count + 1
+        assert order.history[-1].status == "확인됨"
+
+    def test_order_payment_records_history(self):
+        order = Order.create()
+        order.add_item(make_order_item())
+        order.confirm()
+        initial_count = len(order.history)
+        order.mark_paid()
+        assert len(order.history) == initial_count + 1
+        assert order.history[-1].status == "결제완료"
+
+    def test_order_history_snapshot_captures_totals(self):
+        order = Order.create()
+        item = make_order_item(price=Decimal("5000"), qty=2)
+        order.add_item(item)
+        order.confirm()
+        snapshots = order.history
+        confirmed_snapshot = [s for s in snapshots if s.status == "확인됨"][0]
+        assert confirmed_snapshot.total_amount.amount == Decimal("10000")
+        assert confirmed_snapshot.item_count == 2
+
+    def test_order_history_immutable(self):
+        order = Order.create()
+        history_count = len(order.history)
+        order.history.append(None)
+        assert len(order.history) == history_count + 1

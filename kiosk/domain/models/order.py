@@ -1,9 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from .value_objects import OrderId, MenuItemId, Money, DiscountId
+from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId
 from .discount import Discount
 
 
@@ -48,11 +49,24 @@ class Order:
     id: OrderId
     items: List[OrderItem] = field(default_factory=list)
     status: OrderStatus = OrderStatus.PENDING
+    user_id: Optional[UserId] = None
     _discounts: List[Discount] = field(default_factory=list, init=False)
+    history: List[OrderStateSnapshot] = field(default_factory=list, init=False)
 
     @classmethod
     def create(cls) -> Order:
-        return cls(id=OrderId.generate())
+        order = cls(id=OrderId.generate())
+        order._record_history()
+        return order
+
+    def _record_history(self):
+        snapshot = OrderStateSnapshot(
+            status=self.status.value,
+            total_amount=self.total_amount,
+            timestamp=datetime.now(),
+            item_count=self.item_count
+        )
+        self.history.append(snapshot)
 
     def add_item(self, item: OrderItem):
         if self.status != OrderStatus.PENDING:
@@ -88,16 +102,19 @@ class Order:
         if not self.items:
             raise ValueError("주문 항목이 없습니다.")
         self.status = OrderStatus.CONFIRMED
+        self._record_history()
 
     def mark_paid(self):
         if self.status != OrderStatus.CONFIRMED:
             raise ValueError("확인된 주문만 결제 완료로 변경할 수 있습니다.")
         self.status = OrderStatus.PAID
+        self._record_history()
 
     def cancel(self):
         if self.status == OrderStatus.PAID:
             raise ValueError("결제 완료된 주문은 취소할 수 없습니다.")
         self.status = OrderStatus.CANCELLED
+        self._record_history()
 
     def apply_discount(self, discount: Discount):
         if self.status != OrderStatus.PENDING:

@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID, uuid4
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,19 @@ class PaymentId:
 
 
 @dataclass(frozen=True)
+class UserId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> UserId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> UserId:
+        return cls(UUID(value))
+
+
+@dataclass(frozen=True)
 class DiscountId:
     value: UUID
 
@@ -97,3 +111,11 @@ class DiscountRule:
             raise ValueError("정률 할인은 100% 이하여야 합니다.")
         if self.applicable_target not in ["order", "product", "both"]:
             raise ValueError("적용 대상은 'order', 'product', 'both' 중 하나여야 합니다.")
+
+
+@dataclass(frozen=True)
+class OrderStateSnapshot:
+    status: str
+    total_amount: Money
+    timestamp: datetime
+    item_count: int
