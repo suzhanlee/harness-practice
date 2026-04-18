@@ -6,9 +6,12 @@ from application.use_cases.process_payment import ProcessPaymentUseCase
 from application.use_cases.cart_use_cases import (
     AddToCartUseCase, RemoveFromCartUseCase, UpdateQuantityUseCase, ViewCartUseCase, CheckoutUseCase
 )
+from application.use_cases.apply_coupon import ApplyCouponUseCase
+from application.use_cases.validate_discount import ValidateDiscountUseCase
 from infrastructure.repositories.in_memory_menu_item_repository import InMemoryMenuItemRepository
 from infrastructure.repositories.in_memory_order_repository import InMemoryOrderRepository
 from infrastructure.repositories.in_memory_payment_repository import InMemoryPaymentRepository
+from infrastructure.repositories.in_memory_discount_repository import InMemoryDiscountRepository
 from infrastructure.seed_data import seed_menu
 
 
@@ -16,6 +19,7 @@ def build_dependencies():
     menu_repo = InMemoryMenuItemRepository()
     order_repo = InMemoryOrderRepository()
     payment_repo = InMemoryPaymentRepository()
+    discount_repo = InMemoryDiscountRepository()
     domain_service = OrderDomainService()
 
     seed_menu(menu_repo)
@@ -30,17 +34,23 @@ def build_dependencies():
     view_cart = ViewCartUseCase(order_repo)
     checkout = CheckoutUseCase(order_repo)
 
+    apply_coupon = ApplyCouponUseCase(order_repo, discount_repo)
+    validate_discount = ValidateDiscountUseCase(discount_repo)
+
     return {
         'get_menu': get_menu,
         'place_order': place_order,
         'process_payment': process_payment,
         'menu_repo': menu_repo,
         'order_repo': order_repo,
+        'discount_repo': discount_repo,
         'add_to_cart': add_to_cart,
         'remove_from_cart': remove_from_cart,
         'update_quantity': update_quantity,
         'view_cart': view_cart,
         'checkout': checkout,
+        'apply_coupon': apply_coupon,
+        'validate_discount': validate_discount,
     }
 
 
