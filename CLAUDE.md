@@ -4,12 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**compound-practice** is a multi-project repository for practicing software engineering patterns and domain-driven design. Two main projects are included:
+**kiosk** is a Domain-Driven Design (DDD) implementation of a self-service kiosk ordering system. It demonstrates layered architecture with clear separation of concerns: domain models (entities, aggregates, value objects), application services (use cases), and infrastructure (in-memory repositories).
 
-1. **json-cli/** — A simple practice project implementing CRUD operations on JSON files using Typer CLI
-2. **kiosk/** — A domain-driven design (DDD) implementation of a self-service kiosk ordering system with cart functionality, menu management, order processing, and payment handling
-
-The repository also includes a sophisticated development workflow powered by the "mini-harness" system: a hook-based orchestration chain combining council debates, task specification, dependency resolution, and learning capture.
+The system supports menu browsing, shopping cart operations, order confirmation, and payment processing.
 
 ---
 
@@ -19,7 +16,6 @@ The repository also includes a sophisticated development workflow powered by the
 
 - Python 3.8+
 - pytest (for testing)
-- typer (for json-cli only)
 
 ### Running Tests
 
@@ -37,388 +33,424 @@ pytest tests/test_order.py::test_order_creation
 pytest --cov=kiosk tests/
 ```
 
-### Running Projects
+### Running the Kiosk CLI
 
-**json-cli:**
-```bash
-cd json-cli
-pip install typer
-python cli.py list-tasks
-```
-
-**kiosk CLI:**
 ```bash
 cd kiosk
 python cli.py
 ```
 
----
-
-## Architecture: Kiosk System (DDD)
-
-The kiosk project follows Domain-Driven Design with clear separation of concerns:
-
-### Layer Structure
-
-**domain/** — Business logic and rules
-- `models/` — Core entities and value objects (Order, MenuItem, Payment, etc.)
-- `services/` — Domain services containing cross-aggregate logic (OrderDomainService)
-- `repositories/` — Repository interfaces (no implementation)
-
-**application/** — Use cases and workflows
-- `use_cases/` — Application logic that orchestrates domain models and repositories
-  - Single Responsibility: each use case handles one business operation
-  - Dependency injection via constructor
-  - Return DTOs instead of domain models
-
-**infrastructure/** — Implementation details
-- `repositories/` — Concrete repository implementations (currently in-memory)
-- `seed_data.py` — Initial data for in-memory repositories
-
-### Key Design Patterns
-
-**Value Objects** (frozen dataclasses):
-- Immutable, identity-less objects representing concepts like Money, Quantity, MenuItemId
-- Located in `domain/models/value_objects.py`
-- When mutable state change is needed (e.g., cart quantity update), use `object.__setattr__()` internally with invariant validation (see `.mini-harness/learnings/2026-04-18-frozen-dataclass-mutation.md`)
-
-**Aggregates**:
-- `Order` — Root aggregate managing order items and state transitions (PENDING → CONFIRMED → PAID)
-- `MenuItem` — Simple entity with no sub-aggregates
-- `Payment` — Tracks payment status and method
-
-**Repository Pattern**:
-- Domain defines interfaces in `domain/repositories/`
-- Infrastructure provides in-memory implementations
-- Enables easy testing and future database migration
-
-### Domain Model: Order State Machine
-
-The Order aggregate manages three states:
-- **PENDING** — Items added to cart (not yet committed)
-- **CONFIRMED** — Cart converted to order (ready for payment)
-- **PAID** — Payment successful
-
-```python
-Order.add_item(menu_item_id, quantity)  # PENDING state only
-Order.confirm()  # Transition to CONFIRMED
-Order.mark_paid()  # Transition to PAID
-```
-
-**Important**: When the same menu item is added twice to a PENDING order, the quantity increases (not a duplicate line item). This is enforced in the domain model.
-
----
-
-## Common Development Tasks
-
-### Adding a New Use Case
-
-1. Create file in `kiosk/application/use_cases/`
-2. Import dependencies (repositories, domain services)
-3. Accept repositories and services in `__init__`
-4. Implement `execute(...)` method returning a DTO
-5. Add corresponding test in `tests/test_use_cases.py`
-6. Wire up in `kiosk/cli.py` dependency container (`build_dependencies()`)
-
-Example:
-```python
-class MyUseCase:
-    def __init__(self, order_repo, domain_service):
-        self.order_repo = order_repo
-        self.domain_service = domain_service
-    
-    def execute(self, param1, param2):
-        # Orchestrate domain logic
-        order = self.order_repo.get(...)
-        order.some_operation()
-        self.order_repo.save(order)
-        return MyDTO(...)  # Return DTO, not domain model
-```
-
-### Adding a Domain Value Object
-
-1. Define in `kiosk/domain/models/value_objects.py` as a frozen dataclass
-2. Include validation in `__post_init__`
-3. Add type hint to relevant entities
-4. Test invariants in `tests/test_value_objects.py`
-
-### Running the CLI
-
-The kiosk CLI is interactive. Start with:
-```bash
-cd kiosk
-python cli.py
-```
-
-Menu options:
-1. Add item to cart (specifies order ID)
+Interactive menu:
+1. Add item to cart
 2. Update quantity
 3. Remove item
 4. View cart
-5. Checkout (transitions to CONFIRMED)
-6. Process payment (transitions to PAID)
+5. Checkout (confirm order)
+6. Process payment
+7. Exit
+
+---
+
+## DDD Architecture: Layered Design
+
+### Layer Responsibilities
+
+**domain/** — Business logic, unchanged by infrastructure choices
+- `models/` — Entities (MenuItem, Order, Payment) and aggregate roots (Order)
+- `value_objects.py` — Immutable concepts (Money, Quantity, IDs)
+- `services/` — Domain services for cross-aggregate operations
+- `repositories/` — Abstract interfaces, implementation-agnostic
+
+**application/** — Workflows, orchestrating domain models
+- `use_cases/` — One business operation per use case
+- Dependency injection via constructor
+- Return DTOs, never expose domain models
+
+**infrastructure/** — Technical implementation
+- `repositories/` — Concrete implementations (currently in-memory)
+- `seed_data.py` — Initial data setup
+
+---
+
+## Domain Model: Order State Machine
+
+**Three States** (`OrderStatus` enum in `kiosk/domain/models/order.py`):
+
+| State | Description | Allowed Operations |
+|---|---|---|
+| **PENDING** | Cart phase: items being selected | `add_item()`, `remove_item()`, `update_item_quantity()` |
+| **CONFIRMED** | Order finalized: ready for payment | None (read-only) |
+| **PAID** | Payment complete | None (read-only) |
+| **CANCELLED** | Order cancelled (from PENDING or CONFIRMED only) | None (read-only) |
+
+**State Transitions** (enforced by guards):
+
+```python
+# PENDING → CONFIRMED (must have items)
+order.confirm()
+
+# CONFIRMED → PAID
+order.mark_paid()
+
+# PENDING or CONFIRMED → CANCELLED (not from PAID)
+order.cancel()
+```
+
+**Key Insight**: Cart functionality is not a separate entity. A PENDING Order *is* the cart. This design minimizes duplication and simplifies state management. See `.dev/adr/2026-04-18-order-and-shopping-cart-inclusion.md` for the architectural rationale.
+
+---
+
+## Value Objects: Immutable Concepts
+
+All frozen dataclasses in `kiosk/domain/models/value_objects.py`.
+
+### Money
+- **Fields**: `amount: Decimal`, `currency: str` (default "KRW")
+- **Invariant**: `amount >= 0` — raises `ValueError` if violated
+- **Operations**: Addition (same currency enforced), multiplication by quantity
+
+### MenuItemId
+- **Fields**: `value: UUID`
+- **Factory Methods**: `.generate()`, `.from_str(value: str)`
+
+### OrderId
+- **Fields**: `value: UUID`
+- **Factory Methods**: `.generate()`, `.from_str(value: str)`
+
+### PaymentId
+- **Fields**: `value: UUID`
+- **Factory Method**: `.generate()`
+
+### OrderItem (Line Item)
+- **Fields**: `menu_item_id: MenuItemId`, `name: str`, `unit_price: Money`, `quantity: Quantity`
+- **Quantity Constraints**: Between 1 and 10 (enforced in Quantity value object)
+- **Mutable Quantity**: Uses `object.__setattr__()` to bypass frozen-ness when calling `increase_quantity()` or `set_quantity()` — see `.mini-harness/learnings/2026-04-18-frozen-dataclass-mutation.md` for pattern explanation
+- **Subtotal**: `quantity.value * unit_price.amount`
+
+---
+
+## Use Cases: Application Services
+
+Each use case accepts dependencies via constructor and implements `execute(...)` returning a DTO.
+
+### Example: AddToCartUseCase
+
+```python
+def __init__(self, order_repo: OrderRepository):
+    self.order_repo = order_repo
+
+def execute(self, order_id: str, menu_item_id: str, name: str, price: str, quantity: int) -> CartDTO:
+    # Get or create cart (PENDING order)
+    order = self._get_or_create_cart(order_id)
+    
+    # Delegate duplicate handling to Order.add_item()
+    item = OrderItem(MenuItemId.from_str(menu_item_id), name, Money(Decimal(price)), Quantity(quantity))
+    order.add_item(item)
+    
+    # Save and return DTO
+    self.order_repo.save(order)
+    return CartDTO(...)
+```
+
+### Duplicate Item Handling
+
+When the same `menu_item_id` is added twice:
+- **Order.add_item()** searches for existing item with same ID
+- If found: calls `existing.increase_quantity(new_qty)` — quantities **sum**
+- If not found: appends as new item
+
+Result: `add_item(item, qty=1)` then `add_item(item, qty=2)` → single item with `quantity = 3`
+
+⚠️ **Test Discrepancy**: `tests/test_order.py::test_add_duplicate_item_raises` expects an exception on duplicate adds, but the implementation merges quantities instead. This test **will fail** against the current code. The integration test `test_cart_integration.py::TestAddToCart::test_add_duplicate_item_increases_quantity` reflects the actual behavior.
 
 ---
 
 ## Testing Strategy
 
-### Test Structure
+### Fixtures in `tests/conftest.py`
 
-- **Unit tests** (`test_*.py`): Test domain models, value objects, and individual use cases in isolation
-- **Integration tests** (`test_*_integration.py`): Test workflows across multiple use cases
-- `conftest.py`: Shared fixtures (repositories, domain services)
+| Fixture | Returns | Usage |
+|---|---|---|
+| `burger` | MenuItem("불고기버거", 5500 KRW) | Menu tests |
+| `drink` | MenuItem("콜라", 2000 KRW) | Menu tests |
+| `menu_repo` | `InMemoryMenuItemRepository()` (empty) | Use case tests |
+| `order_repo` | `InMemoryOrderRepository()` (empty) | Order/cart tests |
+| `payment_repo` | `InMemoryPaymentRepository()` (empty) | Payment tests |
+| `domain_service` | `OrderDomainService()` | Domain service tests |
+| `seeded_menu_repo` | `InMemoryMenuItemRepository()` with 6 items | Menu listing tests |
 
-### Key Fixtures
+### Test Files by Concern
+
+| File | Scenarios | Key Pattern |
+|---|---|---|
+| `test_value_objects.py` | Money arithmetic, ID generation/parsing | Invariant validation, immutability |
+| `test_menu_item.py` | Create, mark available/unavailable, update price | Entity lifecycle |
+| `test_order.py` | Order item constraints, state transitions, confirmation guards | **⚠️ Discrepancy in test_add_duplicate_item_raises** |
+| `test_domain_service.py` | Create item from menu, validate payment, availability checks | Cross-aggregate logic |
+| `test_use_cases.py` | GetMenuUseCase, PlaceOrderUseCase, ProcessPaymentUseCase | Use case orchestration, DTO contracts |
+| `test_cart_integration.py` | Add/remove/update/checkout flow, duplicate handling, quantity limits | **Reference for actual duplicate behavior** |
+
+### Running Tests
+
+```bash
+# All cart integration tests
+pytest tests/test_cart_integration.py -v
+
+# Just the duplicate item test (documents expected behavior)
+pytest tests/test_cart_integration.py::TestAddToCart::test_add_duplicate_item_increases_quantity -v
+
+# Domain model tests
+pytest tests/test_order.py tests/test_value_objects.py -v
+```
+
+---
+
+## Adding a New Use Case
+
+1. Create file: `kiosk/application/use_cases/{use_case_name}.py`
+2. Inject dependencies via `__init__`:
+   ```python
+   def __init__(self, order_repo: OrderRepository, menu_repo: MenuRepository):
+       self.order_repo = order_repo
+       self.menu_repo = menu_repo
+   ```
+3. Implement `execute(...)` returning a DTO (not domain model):
+   ```python
+   def execute(self, param1, param2) -> ResultDTO:
+       # Orchestrate domain logic
+       order = self.order_repo.find_by_id(...)
+       menu_item = self.menu_repo.find_by_id(...)
+       order.some_operation(menu_item)
+       self.order_repo.save(order)
+       return ResultDTO(...)
+   ```
+4. Write tests in `tests/test_use_cases.py`
+5. Wire up in `kiosk/cli.py`'s `build_dependencies()` function:
+   ```python
+   def build_dependencies():
+       ...
+       new_use_case = NewUseCase(order_repo, menu_repo)
+       return {..., 'new_use_case': new_use_case, ...}
+   ```
+
+---
+
+## Repository Pattern
+
+### Interface-First Design
+
+Repositories are defined as abstract base classes in `domain/repositories/`:
 
 ```python
-@pytest.fixture
-def order_repo():
-    return InMemoryOrderRepository()
-
-@pytest.fixture
-def menu_repo():
-    return InMemoryMenuItemRepository()
+# domain/repositories/order_repository.py
+class OrderRepository(ABC):
+    @abstractmethod
+    def save(self, order: Order) -> None: ...
+    
+    @abstractmethod
+    def find_by_id(self, order_id: OrderId) -> Optional[Order]: ...
+    
+    @abstractmethod
+    def find_by_status(self, status: OrderStatus) -> List[Order]: ...
 ```
 
-### Testing Patterns
+### Current Implementation: In-Memory
 
-Use `conftest.py` for shared setup. Mock repositories are provided by InMemory implementations; no external mocks needed.
+`infrastructure/repositories/in_memory_order_repository.py` stores orders in a dict:
 
-Example test:
 ```python
-def test_add_item_to_cart(order_repo, menu_repo):
-    # Arrange
-    menu = menu_repo.get_all()[0]
-    
-    # Act
-    cart = AddToCartUseCase(order_repo).execute("", str(menu.id.value), menu.name, "5000", 2)
-    
-    # Assert
-    assert cart.item_count == 2
-    assert cart.total_amount == "10000"
+class InMemoryOrderRepository(OrderRepository):
+    def __init__(self):
+        self._orders: Dict[OrderId, Order] = {}
 ```
+
+**Important**: Dict key is the `OrderId` value object itself (not a UUID string), so equality relies on the frozen dataclass `__eq__`.
+
+### Future: Database Migration
+
+When adding persistence:
+1. **Keep interface unchanged** — only swap implementation
+2. **Load dependency in CLI's `build_dependencies()`** — do not hardcode concrete class
+3. **Test against interface** — tests should use any `OrderRepository` implementation
 
 ---
 
-## Mini-Harness Development Workflow
+## CLI Entry Point: Dependency Injection Container
 
-The project includes a sophisticated hook-based orchestration system (`mini-harness`) for structured decision-making and learning capture.
-
-### Workflow Chain
-
-```
-/mini-harness [goal]
-  ↓
-/council [topic]          (Debate → ADR)
-  ↓
-/mini-specify [goal]      (Search learnings, output task list)
-  ↓
-/taskify                  (Break requirements into structured tasks)
-  ↓
-/dependency-resolve       (Analyze task dependencies)
-  ↓
-/mini-execute             (Implement each task, capture friction)
-  ↓
-/mini-compound            (Promote learnings.json to permanent .md files)
-```
-
-### How to Use
-
-1. **Start a structured decision**: `/mini-harness [goal]`
-   - Triggers the full learning loop via Stop hooks
-   - Each phase feeds into the next
-
-2. **Debate an architectural decision**: `/council [topic]`
-   - Spawns a 4-panel team (UX/tech/product/devil's advocate)
-   - Runs 2-phase debate (positions → rebuttal)
-   - Outputs ADR to `.dev/adr/`
-
-3. **Implement tasks**: `/mini-execute`
-   - Reads `.dev/task/spec.json`
-   - Iterates over tasks, implementing each
-   - Records friction/learnings to `session/learnings.json`
-
-### Key Files
-
-- `.dev/requirements/requirements.json` — Business requirements
-- `.dev/task/spec.json` — Structured task breakdown (output of /taskify)
-- `.dev/adr/` — Architecture decision records
-- `.mini-harness/learnings/` — Reusable patterns and rules discovered during development
-- `session/learnings.json` — Current session friction logs (merged to .mini-harness/ on /mini-compound)
-
-### Learnings System
-
-Learnings capture non-obvious rules discovered during implementation:
-- **DDD patterns**: frozen dataclass mutation strategies
-- **Repository patterns**: when to use dependency injection dicts
-- **Testing approaches**: repository interface consistency
-
-Access learnings during planning with `/mini-specify` — it searches the `learnings/` directory before generating task lists.
-
----
-
-## Code Organization & Naming
-
-### Directories
-
-```
-kiosk/
-  __init__.py
-  cli.py                      # Interactive CLI entry point
-  domain/
-    __init__.py
-    models/
-      __init__.py
-      menu_item.py            # MenuItem entity
-      order.py                # Order aggregate root
-      payment.py              # Payment entity
-      value_objects.py        # Immutable value objects (Money, Quantity, etc.)
-    repositories/
-      __init__.py
-      menu_item_repository.py # Interface
-      order_repository.py     # Interface
-      payment_repository.py   # Interface
-    services/
-      __init__.py
-      order_domain_service.py # Cross-aggregate logic
-  application/
-    __init__.py
-    use_cases/
-      __init__.py
-      get_menu.py
-      place_order.py
-      process_payment.py
-      cart_use_cases.py       # AddToCart, RemoveFromCart, UpdateQuantity, ViewCart, Checkout
-  infrastructure/
-    __init__.py
-    repositories/
-      __init__.py
-      in_memory_*.py          # Concrete implementations
-    seed_data.py              # Initial data
-```
-
-### Naming Conventions
-
-- **Entities/Aggregates**: PascalCase (Order, MenuItem, Payment)
-- **Value Objects**: PascalCase with suffix (Money, Quantity, MenuItemId)
-- **DTOs**: PascalCase with "DTO" suffix or plain PascalCase for response objects (CartDTO, PaymentDTO)
-- **Use Cases**: PascalCase with "UseCase" suffix (AddToCartUseCase)
-- **Services**: PascalCase with "Service" suffix (OrderDomainService)
-- **Repositories**: PascalCase with "Repository" suffix, implementation with prefix (InMemoryOrderRepository)
-
----
-
-## Important Constraints & Patterns
-
-### Order State Transitions
-
-Order follows a strict state machine:
-1. Create as PENDING (implicit on first item addition)
-2. Only PENDING orders accept `add_item` / `remove_item`
-3. Call `confirm()` to transition to CONFIRMED
-4. Call `mark_paid()` to transition to PAID
-
-Attempting invalid operations raises `ValueError` with clear messages.
-
-### Item Quantity Limits
-
-Quantity must be between 1 and 10 (enforced in Quantity value object). Attempting to set outside this range raises `ValueError`.
-
-### Cart as PENDING Order
-
-The "cart" in the UI is not a separate entity — it's a PENDING Order aggregate. This design choice minimizes duplication and simplifies state management. See `.dev/adr/2026-04-18-order-and-shopping-cart-inclusion.md` for the full rationale.
-
-### Dependency Injection Pattern
-
-Dependencies are injected via constructor in use cases. The CLI layer (`kiosk/cli.py`) maintains a `build_dependencies()` function that creates all instances. Update this function when adding new repositories or use cases.
+`kiosk/cli.py` contains the DI setup:
 
 ```python
 def build_dependencies():
     # Create repositories
     menu_repo = InMemoryMenuItemRepository()
     order_repo = InMemoryOrderRepository()
+    payment_repo = InMemoryPaymentRepository()
     
-    # Create services
+    # Create domain service
     domain_service = OrderDomainService()
     
     # Create use cases
     get_menu = GetMenuUseCase(menu_repo)
     add_to_cart = AddToCartUseCase(order_repo)
+    ...
     
+    # Return dict for CLI access
     return {
         'menu_repo': menu_repo,
+        'order_repo': order_repo,
         'get_menu': get_menu,
         'add_to_cart': add_to_cart,
-        # ...
+        ...
     }
+```
+
+Update this function when:
+- Adding new repositories
+- Creating new use cases
+- Wiring CLI commands to use cases
+
+---
+
+## Code Organization & Paths
+
+```
+kiosk/
+  __init__.py
+  cli.py                      # Entry point: build_dependencies() + interactive loop
+  domain/
+    models/
+      menu_item.py            # MenuItem entity
+      order.py                # Order aggregate (cart + order logic)
+      payment.py              # Payment entity
+      value_objects.py        # Money, Quantity, MenuItemId, OrderId, PaymentId
+    repositories/
+      menu_item_repository.py # Interface only
+      order_repository.py     # Interface only
+      payment_repository.py   # Interface only
+    services/
+      order_domain_service.py # CreateOrderItem, ValidatePayment
+  application/
+    use_cases/
+      get_menu.py
+      place_order.py
+      process_payment.py
+      cart_use_cases.py       # AddToCart, RemoveFromCart, UpdateQuantity, ViewCart, Checkout
+  infrastructure/
+    repositories/
+      in_memory_*.py          # Concrete implementations
+    seed_data.py              # Initial menu data
 ```
 
 ---
 
-## Decision Records
+## Important Constraints
 
-The project documents significant architectural decisions in `.dev/adr/`:
-- **2026-04-18-order-and-shopping-cart-inclusion.md** — Why "cart" is a PENDING Order, not a separate entity. Includes the council debate transcript and rationale for scope constraints.
+### Order State Guards
+
+Attempting invalid operations raises `ValueError`:
+
+```python
+# PENDING state required
+order.add_item(...)         # ValueError if not PENDING
+order.remove_item(...)      # ValueError if not PENDING
+order.update_item_quantity(...)  # ValueError if not PENDING
+
+# CONFIRMED state required
+order.mark_paid()           # ValueError if not CONFIRMED
+
+# PENDING + non-empty required
+order.confirm()             # ValueError if PENDING but empty items
+```
+
+### Quantity Limits
+
+`Quantity` value object enforces 1–10 range:
+
+```python
+Quantity(0)   # ValueError: "수량은 1 이상이어야 합니다."
+Quantity(11)  # ValueError: "수량은 10 이하여야 합니다."
+```
+
+### Payment Amount Validation
+
+`ProcessPaymentUseCase` validates that payment amount matches order total before marking paid.
+
+---
+
+## Architecture Decision Records
+
+The project documents key decisions in `.dev/adr/`:
+
+- **2026-04-18-order-and-shopping-cart-inclusion.md** — Architectural debate on whether to implement cart as a separate entity or as a PENDING Order. Decided: Cart = PENDING Order (simplifies design, avoids duplication).
 
 Review ADRs before proposing changes to core domain model.
 
 ---
 
+## Common Workflows
+
+### Add a New Menu Item Property
+
+1. Update `MenuItem` model in `domain/models/menu_item.py`
+2. Seed in `infrastructure/seed_data.py`
+3. Update DTO in use case output if needed
+4. Test: `pytest tests/test_menu_item.py -v`
+
+### Extend Order Aggregate
+
+1. Add method to `Order` class with state guard (`if self.status != OrderStatus.PENDING: raise ValueError(...)`)
+2. Write test in `tests/test_order.py`
+3. Update use case if needed, test end-to-end in `test_use_cases.py`
+
+### Add Payment Method Option
+
+1. Add enum value to payment method in `domain/models/payment.py`
+2. Update `ProcessPaymentUseCase` validation logic
+3. Test: `pytest tests/test_payment.py -v`
+
+---
+
 ## Debugging Tips
 
-### Inspect Order State
+### Inspect Order Contents
 
 ```python
-order = order_repo.get(order_id)
-print(f"State: {order.state}")
-print(f"Items: {[item.name for item in order.items]}")
+order = order_repo.find_by_id(order_id)
+print(f"Status: {order.status.value}")
+print(f"Items: {[(item.name, item.quantity.value) for item in order.items]}")
 print(f"Total: {order.total_amount.amount}")
 ```
 
-### Test Individual Use Cases
+### Test Single Use Case
 
-Create fixtures in `conftest.py` and run isolated tests:
 ```bash
-pytest tests/test_use_cases.py::test_add_to_cart -vv
+pytest tests/test_use_cases.py::TestAddToCartUseCase::test_add_item -vv
 ```
 
 ### Trace CLI Execution
 
-Add print statements in use case `execute()` methods or domain model operations to trace the flow.
+Add print statements in:
+- `execute()` methods of use cases
+- Domain service methods
+- Order state transition methods
 
 ---
 
-## Git Workflow & Commits
+## Harness & Development Workflow
 
-This project uses structured commit messages grouped by functionality. When committing changes:
+This project includes a sophisticated development workflow system (mini-harness). For guidance on:
+- Structured architectural debates (`/council`)
+- Task specification and breakdown (`/mini-specify`, `/taskify`)
+- Implementation planning (`/dependency-resolve`, `/mini-execute`)
+- Learning capture (`/mini-compound`)
 
-1. Stage relevant files
-2. Run `/commit` skill to analyze changes and group them
-3. Accept the suggested grouping or adjust as needed
-
-Example structured commits:
-```
-feat(kiosk): add UpdateQuantity use case with validation
-test(kiosk): add integration test for cart quantity updates
-refactor(domain): extract Quantity invariant checks to value object
-```
-
----
-
-## Performance & Scalability Notes
-
-- **In-memory repositories** are suitable for learning but not production
-- **No persistence layer** — all data is lost on application restart
-- **Single-process execution** — no concurrency issues with current in-memory design
-- **CLI interaction** — blocks on user input, suitable for kiosk use case
-
-Future extensions (database, API, multiple clients) will require evaluating these constraints.
+See `docs/harness.md`.
 
 ---
 
 ## References & Further Reading
 
-- **DDD**: See domain models in `kiosk/domain/models/` for examples of entities, value objects, and aggregates
-- **Use cases**: See `kiosk/application/use_cases/` for application service patterns
+- **DDD Patterns**: See domain models for entities, aggregates, value objects, repositories
 - **Testing**: See `tests/` for unit and integration test examples
-- **Learnings**: See `.mini-harness/learnings/` for discovered patterns (frozen dataclass mutation, repository interfaces, etc.)
+- **Architecture Decisions**: See `.dev/adr/` for rationale behind design choices
+- **Learnings**: See `.mini-harness/learnings/` for reusable patterns discovered during development
