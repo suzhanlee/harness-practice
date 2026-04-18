@@ -1,0 +1,175 @@
+{
+  "goal": "쿠폰/할인 기능 도입해서 주문 때와 상품 관련해서 기능 적용해줘.",
+  "requirements_count": 3,
+  "tasks": [
+    {
+      "id": "T1",
+      "action": "Discount 도메인 모델의 Value Objects 생성",
+      "description": "할인 기능에 필요한 Value Objects (DiscountId, CouponCode, DiscountRule)를 domain/models/value_objects.py에 추가. ID는 UUID 기반, from_str/generate 팩토리 메서드 포함",
+      "step": [
+        "domain/models/value_objects.py에 DiscountId 추가 (UUID 기반, from_str/generate 메서드)",
+        "CouponCode 추가 (불변 문자열 기반)",
+        "DiscountRule 추가 (할인 타입: fixed/percentage, 값, 적용 대상: order/product)",
+        "불변식 검증 추가 (percentage는 0-100, fixed는 >= 0)"
+      ],
+      "verification": "pytest tests/test_value_objects.py::test_discount_id -v && pytest tests/test_value_objects.py::test_coupon_code -v",
+      "status": "end",
+      "dependencies": [],
+      "priority": "P0"
+    },
+    {
+      "id": "T2",
+      "action": "Discount 엔티티 및 Repository 인터페이스 생성",
+      "description": "Discount 엔티티를 domain/models/discount.py에 생성하고, domain/repositories/discount_repository.py에 인터페이스 정의",
+      "step": [
+        "domain/models/discount.py 생성 (Discount 엔티티: id, code, rule, is_active)",
+        "Discount에 validate_coupon() 메서드 추가",
+        "domain/repositories/discount_repository.py 생성 (인터페이스: find_by_code, find_by_id, save, list_active)",
+        "메서드 시그니처와 반환 타입 정확히 정의"
+      ],
+      "verification": "pytest tests/test_discount_model.py -v",
+      "status": "end",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T3",
+      "action": "Order에 할인 적용 로직 추가",
+      "description": "Order 엔티티에 apply_discount() 메서드 추가. Order는 여러 할인을 누적할 수 있음",
+      "step": [
+        "domain/models/order.py의 Order 클래스에 _discounts: List[Discount] 필드 추가",
+        "apply_discount(discount: Discount) 메서드 추가 (상태 체크: PENDING만 허용)",
+        "remove_discount(discount_id: DiscountId) 메서드 추가",
+        "total_amount에 할인 적용 로직 반영 (get_total_after_discounts() 메서드)",
+        "불변식: 같은 coupon 중복 적용 방지"
+      ],
+      "verification": "pytest tests/test_order.py::test_apply_discount -v && pytest tests/test_order.py::test_discount_sum -v",
+      "status": "end",
+      "dependencies": [
+        0,
+        1
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T4",
+      "action": "MenuItem에 할인가 계산 로직 추가",
+      "description": "MenuItem의 가격에서 특정 할인 규칙을 적용한 최종 가격 계산 메서드 추가",
+      "step": [
+        "domain/models/menu_item.py의 MenuItem 클래스에 get_discounted_price(discount_rule: DiscountRule) 메서드 추가",
+        "fixed/percentage 할인 규칙 처리",
+        "원가보다 낮아지지 않도록 검증",
+        "OrderItem에도 discounted_unit_price 필드 반영"
+      ],
+      "verification": "pytest tests/test_menu_item.py::test_discounted_price -v",
+      "status": "end",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T5",
+      "action": "InMemoryDiscountRepository 구현",
+      "description": "infrastructure/repositories/in_memory_discount_repository.py에 DiscountRepository 구현",
+      "step": [
+        "InMemoryDiscountRepository 클래스 생성 (dict 기반 저장소)",
+        "find_by_code(code: CouponCode) 구현",
+        "find_by_id(id: DiscountId) 구현",
+        "save(discount: Discount) 구현",
+        "list_active() 구현 (is_active=True인 할인만)",
+        "Repository 인터페이스와 메서드명 일치 확인"
+      ],
+      "verification": "pytest tests/test_repositories.py::test_discount_repository -v",
+      "status": "end",
+      "dependencies": [
+        1
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T6",
+      "action": "ApplyCouponUseCase 구현",
+      "description": "application/use_cases/apply_coupon.py에서 주문에 쿠폰 적용하는 use case 작성",
+      "step": [
+        "ApplyCouponUseCase 클래스 생성 (생성자: order_repo, discount_repo)",
+        "execute(order_id: str, coupon_code: str) 메서드 구현",
+        "Discount 검증 (coupon 존재, is_active)",
+        "Order에 discount 적용",
+        "저장 및 결과 DTO 반환"
+      ],
+      "verification": "pytest tests/test_use_cases.py::test_apply_coupon_use_case -v",
+      "status": "end",
+      "dependencies": [
+        1,
+        2,
+        4
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T7",
+      "action": "ValidateDiscountUseCase 구현",
+      "description": "application/use_cases/validate_discount.py에서 할인 유효성 검사 use case",
+      "step": [
+        "ValidateDiscountUseCase 클래스 생성",
+        "execute(coupon_code: str) 메서드: 쿠폰 존재 여부, 활성화 여부 검증",
+        "할인 내용(정액/정률, 금액) 반환 DTO"
+      ],
+      "verification": "pytest tests/test_use_cases.py::test_validate_discount_use_case -v",
+      "status": "end",
+      "dependencies": [
+        1,
+        4
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T8",
+      "action": "CLI DI 개선 및 할인 use case 연결",
+      "description": "cli.py의 build_dependencies()를 dict 기반 DI로 개선하고 할인 use case 추가",
+      "step": [
+        "build_dependencies() 반환값을 dict로 변경 (기존 use case 포함)",
+        "DiscountRepository 추가",
+        "ApplyCouponUseCase, ValidateDiscountUseCase 추가",
+        "CLI main loop에 할인 관련 메뉴 추가 (8. 쿠폰 적용, 9. 할인 확인 등)",
+        "각 메뉴 선택 시 해당 use case 호출"
+      ],
+      "verification": "pytest tests/test_cli_integration.py::test_discount_cli_flow -v",
+      "status": "end",
+      "dependencies": [
+        4,
+        5,
+        6
+      ],
+      "priority": "P1"
+    },
+    {
+      "id": "T9",
+      "action": "통합 테스트: 할인 적용 전체 흐름",
+      "description": "장바구니 → 쿠폰 적용 → 주문 확정 → 결제까지의 전체 흐름 통합 테스트",
+      "step": [
+        "tests/test_discount_integration.py 생성",
+        "메뉴 조회, 장바구니 추가, 쿠폰 유효성 검사, 쿠폰 적용, 주문 확정, 결제의 전체 flow",
+        "정액 할인, 정률 할인 각각 테스트",
+        "중복 쿠폰 적용 방지 테스트",
+        "할인 누적 적용 시나리오 테스트"
+      ],
+      "verification": "pytest tests/test_discount_integration.py -v",
+      "status": "end",
+      "dependencies": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "priority": "P2"
+    }
+  ]
+}
