@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 
-from kiosk.domain.models.value_objects import Money, MenuItemId, OrderId, PaymentId
+from kiosk.domain.models.value_objects import Money, MenuItemId, OrderId, PaymentId, DiscountId, CouponCode, DiscountRule
 
 
 class TestMoney:
@@ -64,3 +64,57 @@ class TestOrderId:
         id1 = OrderId.generate()
         id2 = OrderId.from_str(str(id1.value))
         assert id1 == id2
+
+
+class TestDiscountId:
+    def test_generate_unique(self):
+        id1 = DiscountId.generate()
+        id2 = DiscountId.generate()
+        assert id1 != id2
+
+    def test_from_str(self):
+        id1 = DiscountId.generate()
+        id2 = DiscountId.from_str(str(id1.value))
+        assert id1 == id2
+
+
+class TestCouponCode:
+    def test_coupon_code(self):
+        code = CouponCode("SAVE10")
+        assert code.value == "SAVE10"
+
+    def test_coupon_code_empty_raises(self):
+        with pytest.raises(ValueError, match="비어있을 수"):
+            CouponCode("")
+
+    def test_coupon_code_whitespace_raises(self):
+        with pytest.raises(ValueError, match="비어있을 수"):
+            CouponCode("   ")
+
+
+class TestDiscountRule:
+    def test_fixed_discount(self):
+        rule = DiscountRule("fixed", Decimal("5000"), "product")
+        assert rule.discount_type == "fixed"
+        assert rule.value == Decimal("5000")
+
+    def test_percentage_discount(self):
+        rule = DiscountRule("percentage", Decimal("10"), "order")
+        assert rule.discount_type == "percentage"
+        assert rule.value == Decimal("10")
+
+    def test_invalid_discount_type_raises(self):
+        with pytest.raises(ValueError, match="할인 타입"):
+            DiscountRule("invalid", Decimal("10"), "product")
+
+    def test_negative_discount_raises(self):
+        with pytest.raises(ValueError, match="0 이상"):
+            DiscountRule("fixed", Decimal("-1000"), "product")
+
+    def test_percentage_over_100_raises(self):
+        with pytest.raises(ValueError, match="100% 이하"):
+            DiscountRule("percentage", Decimal("101"), "product")
+
+    def test_invalid_applicable_target_raises(self):
+        with pytest.raises(ValueError, match="적용 대상"):
+            DiscountRule("fixed", Decimal("1000"), "invalid")
