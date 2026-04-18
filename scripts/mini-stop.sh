@@ -38,6 +38,12 @@ if [[ -f "$STATE_FILE" ]]; then
     taskify)
       jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
         "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+      echo "{\"decision\":\"block\",\"reason\":\"dependency-resolve 스킬을 실행하세요.\"}"
+      exit 0
+      ;;
+    dependency-resolve)
+      jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
       echo "{\"decision\":\"block\",\"reason\":\"mini-execute 스킬을 실행하세요.\"}"
       exit 0
       ;;

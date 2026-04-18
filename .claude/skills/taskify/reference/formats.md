@@ -42,6 +42,7 @@
 
 ### 스키마
 
+**taskify 직후:**
 ```json
 {
   "tasks": [
@@ -54,6 +55,29 @@
   ]
 }
 ```
+
+**dependency-resolve 이후:**
+```json
+{
+  "tasks": [
+    {
+      "action": string,              // "동사+목적어" 형태의 구현 단위
+      "verification": string,        // 실행 가능한 CLI 검증 명령어
+      "step": string[],              // 구현 단계 목록, 3~5개
+      "status": "not_start",         // 초기 상태
+      "dependencies": number[],      // 이 task 실행 전 완료해야 할 task 인덱스 배열 (0-based)
+      "priority": "P0|P1|P2"         // P0=독립(선행), P1=의존(중간), P2=말단
+    }
+  ]
+}
+```
+
+#### 필드 설명
+
+| 필드 | 설명 | 예시 |
+|------|------|------|
+| `dependencies` | 이 task가 실행되기 전에 완료되어야 할 task 인덱스 배열. 빈 배열이면 선행 실행 가능 | `[]` (독립), `[0]` (task 0 후), `[0, 1]` (task 0, 1 후) |
+| `priority` | P0=의존성 없음(선행), P1=의존성 있음(중간), P2=다른 task의 의존 대상(말단) | P0, P1, P2 |
 
 ### 작성 기준
 

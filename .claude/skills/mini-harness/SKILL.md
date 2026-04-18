@@ -3,7 +3,7 @@ name: mini-harness
 description: |
   Use when the user says "/mini-harness [goal]".
   Hook-based orchestrator: triggers the full learning loop via Stop hooks.
-  Chain: council → mini-specify → taskify → mini-execute → mini-compound.
+  Chain: council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound.
 allowed-tools:
   - Glob
   - Grep
@@ -27,8 +27,9 @@ allowed-tools:
 1. **council** — goal 관련 결정 도출, ADR 생성
 2. **mini-specify** — goal + ADR로 요구사항 생성, `.dev/requirements/requirements.json` 저장
 3. **taskify** — requirements.json 읽기, 태스크 분해, `.dev/task/spec.json` 저장
-4. **mini-execute** — spec.json 읽기, 모든 태스크 순서 실행
-5. **mini-compound** — session learnings → 영구 파일 승격
+4. **dependency-resolve** — spec.json의 task 간 의존성 분석, dependencies[] 및 priority 필드 추가
+5. **mini-execute** — spec.json 읽기, 의존성 순서에 따라 모든 태스크 실행
+6. **mini-compound** — session learnings → 영구 파일 승격
 
 ## 동작 방식
 

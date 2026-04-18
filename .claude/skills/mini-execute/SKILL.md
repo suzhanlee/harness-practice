@@ -22,6 +22,55 @@ allowed-tools:
 
 ## Workflow
 
+### Step 0: Dependency Order Resolution
+
+spec.json 로드 후 tasks에 `dependencies` 필드가 있으면 의존성 순서로 실행한다.
+
+**0-1. 의존성 필드 확인**
+
+```bash
+jq 'if (.tasks[0].dependencies != null) then "has_deps" else "no_deps" end' .dev/task/spec.json
+```
+
+- `dependencies` 필드 있음 → Step 0-2로 진행
+- 필드 없음 → Step 1로 진행 (하위 호환성)
+
+**0-2. Topological Sort로 실행 순서 결정**
+
+`dependencies` 배열을 기반으로 task 실행 순서를 결정한다:
+
+1. `dependencies: []` 인 task부터 실행 (선행 task)
+2. 선행 task가 완료되면(`status: "end"`), 그 task를 의존하는 task 실행
+3. 모든 의존성이 만족될 때까지 반복
+
+**0-3. 순환 의존성 재검사**
+
+혹시 spec.json의 의존성 데이터가 손상되었을 수 있으므로, DFS로 순환 의존성을 재검사:
+
+```bash
+# 의존성 그래프에서 순환 감지
+jq '.tasks | map(.dependencies // []) | ... # 순환 검사 로직'
+```
+
+순환 발견 시:
+```
+✗ 순환 의존성 발견: Task {idx} → Task {idx2} → Task {idx}
+의존성 데이터를 검토하세요.
+```
+
+즉시 중단.
+
+**0-4. 실행 순서 출력**
+
+```
+📋 의존성 기반 실행 순서
+───────────────────────────────────────
+Task 0 (P0) → Task 1 (P1) → Task 2 (P1) → Task 3 (P2)
+───────────────────────────────────────
+```
+
+---
+
 ### Step 1: Load Spec and Iterate
 
 **1-1. spec.json 존재 확인**
