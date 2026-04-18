@@ -21,7 +21,9 @@ allowed-tools:
 
 포맷 상세는 reference 파일을 참조한다:
 - `.claude/skills/taskify/reference/formats.md` — 입출력 포맷 및 예시
-- `.claude/skills/taskify/reference/jq-commands.md` — jq 파싱/검증 명령어 모음
+- `.claude/skills/taskify/reference/templates/spec-task.md` — spec.json 단일 task 포맷
+- `.claude/skills/taskify/reference/templates/requirements-item.md` — requirements.json 단일 항목 포맷
+- `.claude/skills/taskify/reference/templates/verification-cmd.md` — 스택별 verification 명령어 패턴
 
 ## Workflow
 
@@ -84,14 +86,17 @@ jq '.requirements | length' .dev/requirements/requirements.json
 
 Phase 1에서 추출한 요구사항 목록을 순서대로 처리하여 task로 분해한다.
 
-**분해 원칙:**
-- 하나의 요구사항이 여러 관심사를 포함하면 별도 task로 분리
-  - 예: "로그인한 사용자가 장바구니에 추가" → (1) 인증 미들웨어, (2) 장바구니 추가 API
-- 비즈니스 규칙(수량 제한, 재고 검증 등)은 독립 task로 분리
-- action은 "동사+목적어" 형태 (`JWT 인증 미들웨어 구현`)
-- step은 3~5개, 코드/함수/파일 수준의 구체적 행동
-  - 나쁜 예: "장바구니 로직을 구현한다"
-  - 좋은 예: `CartService.addItem(userId, productId, qty)` 구현
+**분해 기준**
+
+→ 참조: `formats.md` > `## 1:N 분해 기준`
+
+**작성 기준**
+
+→ 참조: `formats.md` > `## 출력: .dev/task/spec.json` > `### 작성 기준`
+
+**task 오브젝트 포맷**
+
+→ 참조: `templates/spec-task.md` > `## taskify 직후 포맷`
 
 ### Phase 4: 출력 디렉터리 준비 및 spec.json 저장
 
@@ -102,19 +107,9 @@ mkdir -p .dev/task
 
 **4-2. spec.json Write**
 
-`.dev/task/spec.json`에 아래 포맷으로 저장한다:
-```json
-{
-  "tasks": [
-    {
-      "action": "...",
-      "verification": "...",
-      "step": ["...", "...", "..."],
-      "status": "not_start"
-    }
-  ]
-}
-```
+`.dev/task/spec.json`에 task 배열로 저장한다. 각 task의 포맷과 필드 규칙은 다음을 참조한다:
+
+→ 참조: `templates/spec-task.md` > `## taskify 직후 포맷`
 
 각 task의 `status`는 초기 값으로 `"not_start"` 를 설정한다.
 
@@ -141,6 +136,7 @@ jq '[.tasks[] | select((.step | length) == 0) | .action] | if length == 0 then "
 # [검사 4] 최종 task 수 확인
 jq '"task count: \(.tasks | length)"' .dev/task/spec.json
 ```
+
 `"INVALID"` 또는 `"INCOMPLETE"` 또는 `"EMPTY STEPS"` 가 출력된 항목은 수정 후 해당 검사만 재실행한다.
 
 ### Phase 5: 완료 보고
