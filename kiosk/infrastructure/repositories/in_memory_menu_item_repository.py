@@ -1,3 +1,4 @@
+import threading
 from typing import Dict, List, Optional
 
 from ...domain.models.menu_item import MenuItem, MenuCategory
@@ -8,9 +9,11 @@ from ...domain.repositories.menu_item_repository import MenuItemRepository
 class InMemoryMenuItemRepository(MenuItemRepository):
     def __init__(self):
         self._store: Dict[MenuItemId, MenuItem] = {}
+        self._lock = threading.Lock()
 
     def save(self, menu_item: MenuItem) -> None:
-        self._store[menu_item.id] = menu_item
+        with self._lock:
+            self._store[menu_item.id] = menu_item
 
     def find_by_id(self, menu_item_id: MenuItemId) -> Optional[MenuItem]:
         return self._store.get(menu_item_id)
