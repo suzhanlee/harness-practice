@@ -141,26 +141,29 @@ No manual intervention needed between steps.
 
 Four lifecycle events are hooked in `.claude/settings.json`. All hooks react to events; no manual prompting between steps.
 
-### Hook 1: UserPromptSubmit — `scripts/mini-start-session.sh`
+### Hook 1: SessionStart (compact) — `scripts/mini-start-session.sh`
 
-**Loop recovery guard.** Fires on every user message.
+**Compact recovery guard.** Fires when a new session starts after context compaction.
 
-- If `.claude/state/state.json` exists, `skill_name == "mini-execute"`, and spec.json has incomplete tasks → blocks the message, instructs user to re-run `/mini-execute`
-- Prevents accidental prompt submission during mid-loop interruption
+- Step 1: Looks up `.dev/harness/sessions/{session_id}.run_id` to find active run
+- Step 2: If no pointer, scans `.dev/harness/runs/` for a single active run and auto-recovers
+- Step 3: If active run has incomplete tasks → blocks, instructs user to re-run `/mini-execute run_id:xxx`
+- Handles the case where compact generates a new `session_id` but a run was in progress
 
 ### Hook 2: PreToolUse (Skill) — `scripts/mini-pre-tool-use.sh`
 
-**State lifecycle manager.** Fires before any Skill tool call.
+**Run state lifecycle manager.** Fires before any Skill tool call.
 
-- First call to any skill: creates `.claude/state/state.json` fresh
-- Subsequent calls: updates `skill_name` while preserving `goal`
+- First call (`mini-harness`): generates a `run_id`, creates `.dev/harness/runs/run-{run_id}.json` with goal + run-scoped `paths`, registers `.dev/harness/sessions/{session_id}.run_id`
+- Subsequent calls: resolves state file via session pointer, updates `skill_name` while preserving `goal` and `paths`
 - Special case: `mini-execute` also sets `last_action = "execute"` (for ralph loop alternation)
+- If no session pointer found (manual invocation without harness): hook is a no-op
 
 ### Hook 3: PostToolUse (Skill) — `scripts/mini-post-tool-use.sh`
 
 **Guard for mini-harness.** Fires after any Skill tool call.
 
-- Resets `status = "processing"` in state.json for the `mini-harness` skill specifically
+- Resets `status = "processing"` in the run state file for the `mini-harness` skill specifically
 - Prevents premature chain termination
 
 ### Hook 4: Stop (Two Sequential Hooks)
@@ -196,25 +199,33 @@ state.json exists, skill_name is:
 
 ---
 
-## State Machine: `state.json`
+## State Machine: run state files
 
-Located at `.claude/state/state.json` during an active run.
+**Location**: `.dev/harness/runs/run-{run_id}.json` — one file per active run.
+
+**Session pointer**: `.dev/harness/sessions/{session_id}.run_id` — maps the current Claude session to a `run_id`. Re-registered whenever a hook fires and detects a new `session_id` (post-compact recovery).
 
 **Schema:**
 ```json
 {
-  "skill_name": "mini-harness | council | mini-specify | taskify | dependency-resolve | mini-execute | mini-compound",
+  "run_id": "20260419-153042-a3f1",
+  "skill_name": "mini-harness | interview | council | mini-specify | taskify | dependency-resolve | mini-execute | mini-compound",
   "status": "processing | end",
   "goal": "<original goal string>",
   "timestamp": "ISO-8601 UTC",
+  "paths": {
+    "requirements": ".dev/requirements/run-{run_id}/requirements.json",
+    "spec": ".dev/task/run-{run_id}/spec.json"
+  },
   "last_action": "execute | validate"
 }
 ```
 
-- **Created**: Fresh on first `/mini-harness` call by PreToolUse hook
-- **Updated**: `skill_name` before each Skill invocation, `status = "end"` when Stop hooks transition to next step
+- **Created**: Fresh on first `/mini-harness` call by PreToolUse hook; `run_id` format: `YYYYMMDD-HHMMSS-{4hex}`
+- **Updated**: `skill_name` before each Skill invocation; `status = "end"` when Stop hooks transition
+- **paths**: Run-scoped file locations read by all downstream skills and hooks via `jq '.paths.spec'`
 - **last_action**: Alternates "execute" ↔ "validate" during ralph loop (mini-execute only)
-- **Deleted**: By mini-compound after learnings promotion complete
+- **Deleted**: Run state file + session pointer deleted by `mini-stop.sh` when `mini-compound` completes
 
 ---
 
@@ -278,13 +289,14 @@ Stop Hook #2's **compound guard** ensures learning promotion cannot be skipped:
 
 | File | Purpose | Lifecycle |
 |---|---|---|
-| `.dev/requirements/run-{RUN_ID}/interview.json` | Socratic interview results (written by interview) | Injected as council context |
-| `.dev/requirements/requirements.json` | Business requirements (written by mini-specify) | Read by taskify |
-| `.dev/task/spec.json` | Executable task breakdown (written by taskify, augmented by dependency-resolve) | Read/written by mini-execute |
-| `.dev/adr/YYYY-MM-DD-{slug}.md` | Architecture decision records (written by council) | Reference during requirement planning |
-| `.claude/state/state.json` | Orchestration state (created/updated by hooks) | Deleted by mini-compound at chain completion |
-| `.mini-harness/session/learnings.json` | Transient friction logs (appended during mini-execute) | Promoted to permanent .md files by mini-compound |
-| `.mini-harness/learnings/*.md` | Permanent searchable rules (written by mini-compound) | Searched by mini-specify |
+| `.dev/harness/runs/run-{run_id}.json` | Run orchestration state (created/updated by hooks) | Deleted by `mini-stop.sh` at chain completion |
+| `.dev/harness/sessions/{session_id}.run_id` | Session→run_id pointer | Created on first hook fire; deleted with run state |
+| `.dev/requirements/run-{RUN_ID}/interview.json` | Socratic interview results (written by /interview) | Injected as /council context |
+| `.dev/requirements/run-{RUN_ID}/requirements.json` | Business requirements (written by /mini-specify) | Read by /taskify |
+| `.dev/task/run-{RUN_ID}/spec.json` | Executable task breakdown (written by /taskify, augmented by /dependency-resolve) | Read/written by /mini-execute |
+| `.dev/adr/YYYY-MM-DD-{slug}.md` | Architecture decision records (written by /council) | Referenced by /mini-specify |
+| `.mini-harness/session/learnings.json` | Transient friction logs (appended during /mini-execute) | Promoted to permanent .md files by /mini-compound |
+| `.mini-harness/learnings/*.md` | Permanent searchable rules (written by /mini-compound) | Searched by /mini-specify |
 
 ---
 
@@ -293,61 +305,62 @@ Stop Hook #2's **compound guard** ensures learning promotion cannot be skipped:
 ```
 User: /mini-harness "add shopping cart"
   ↓
-mini-pre-tool-use.sh → creates state.json {skill_name: "mini-harness", goal: "add shopping cart"}
+mini-pre-tool-use.sh → creates .dev/harness/runs/run-{run_id}.json
+                      + .dev/harness/sessions/{session_id}.run_id
   ↓
 [mini-harness executes — registers goal only]
   ↓
 mini-stop.sh case:mini-harness → BLOCK: "/interview run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "interview"}
+mini-pre-tool-use.sh → updates run state {skill_name: "interview"}
   ↓
-[interview: 3 rounds of AskUserQuestion → EnterPlanMode confirmation → writes interview.json]
+[interview: 3 rounds of AskUserQuestion → user confirms → writes .dev/requirements/run-xxx/interview.json]
   ↓
 mini-stop.sh case:interview → BLOCK: "/council refined_goal interview:.dev/requirements/run-xxx/interview.json run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "council"}
+mini-pre-tool-use.sh → updates run state {skill_name: "council"}
   ↓
 [council loads interview.json → spawns product-owner + expert + devil's advocate → writes ADR]
   ↓
-mini-stop.sh case:council → BLOCK: "/mini-specify goal adr:.dev/adr/2026-04-18-shopping-cart.md"
+mini-stop.sh case:council → BLOCK: "/mini-specify goal adr:.dev/adr/YYYY-MM-DD-slug.md run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "mini-specify"}
+mini-pre-tool-use.sh → updates run state {skill_name: "mini-specify"}
   ↓
-[mini-specify searches learnings, writes .dev/requirements/requirements.json]
+[mini-specify searches learnings, writes .dev/requirements/run-xxx/requirements.json]
   ↓
-mini-stop.sh case:mini-specify → BLOCK: "/taskify"
+mini-stop.sh case:mini-specify → BLOCK: "/taskify run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "taskify"}
+mini-pre-tool-use.sh → updates run state {skill_name: "taskify"}
   ↓
-[taskify reads requirements.json, detects tech, writes .dev/task/spec.json with 5-10 tasks]
+[taskify reads requirements.json, detects tech, writes .dev/task/run-xxx/spec.json]
   ↓
-mini-stop.sh case:taskify → BLOCK: "/dependency-resolve"
+mini-stop.sh case:taskify → BLOCK: "/dependency-resolve run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "dependency-resolve"}
+mini-pre-tool-use.sh → updates run state {skill_name: "dependency-resolve"}
   ↓
 [dependency-resolve infers deps, assigns priority, rewrites spec.json]
   ↓
-mini-stop.sh case:dependency-resolve → BLOCK: "/mini-execute"
+mini-stop.sh case:dependency-resolve → BLOCK: "/mini-execute run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "mini-execute", last_action: "execute"}
+mini-pre-tool-use.sh → updates run state {skill_name: "mini-execute", last_action: "execute"}
   ↓
 [mini-execute implements tasks in topo order, records friction]
   ↓
-execute-stop.sh ralph loop:
+execute-stop.sh (Stop Hook #1) ralph loop:
   ├─ remaining tasks + last_action=execute
-  │  → BLOCK: run validate-tasks agent, set last_action=validate
+  │  → set last_action=validate → BLOCK: run validate-tasks agent
   │  → validate-tasks re-runs verification, reverts failed tasks
-  │  → BLOCK: "/mini-execute"
+  │  → set last_action=execute → BLOCK: "/mini-execute run_id:xxx"
   │  [repeat until all tasks end]
-  └─ no remaining tasks → APPROVE → mini-stop.sh
+  └─ no remaining tasks → APPROVE (pass through to mini-stop.sh)
   ↓
-mini-stop.sh case:mini-execute → BLOCK: "/mini-compound"
+mini-stop.sh (Stop Hook #2) case:mini-execute → BLOCK: "/mini-compound run_id:xxx"
   ↓
-mini-pre-tool-use.sh → updates state.json {skill_name: "mini-compound"}
+mini-pre-tool-use.sh → updates run state {skill_name: "mini-compound"}
   ↓
 [mini-compound: session/learnings.json → .mini-harness/learnings/*.md → deletes session file]
   ↓
-mini-stop.sh case:mini-compound → delete state.json, APPROVE exit
+mini-stop.sh case:mini-compound → DELETE run-{run_id}.json + session pointer → APPROVE exit
 ```
 
 ---
