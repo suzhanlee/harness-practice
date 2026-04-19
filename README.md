@@ -8,7 +8,7 @@ Hook-based autonomous development workflow for Claude Code.
 
 mini-harness is a stop-hook-driven pipeline that takes a goal and autonomously chains structured decision-making, task planning, implementation, validation, and learning capture — without manual intervention between steps.
 
-The entry point is `/mini-harness [goal]`. From there, the chain runs: `council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound`. Each skill is a trigger point; `scripts/mini-stop.sh` is the actual orchestrator. It reads `.claude/state/state.json` after every skill exits, decides what runs next, and either blocks Claude from stopping or approves exit.
+The entry point is `/mini-harness [goal]`. From there, the chain runs: `interview → council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound`. Each skill is a trigger point; `scripts/mini-stop.sh` is the actual orchestrator. It reads `.claude/state/state.json` after every skill exits, decides what runs next, and either blocks Claude from stopping or approves exit.
 
 > **kiosk/ is not the product.** It is a DDD mini-project (self-service kiosk ordering system) used purely as a sandbox to exercise and stress-test the harness. The architectural decisions, ADRs, and learnings it generates are artifacts of harness validation — not of the kiosk domain itself.
 
@@ -22,9 +22,18 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `council 
       ▼  [PreToolUse: mini-pre-tool-use.sh → creates state.json]
   mini-harness skill
       │
-      ▼  [Stop: mini-stop.sh → BLOCK → "run /council"]
+      ▼  [Stop: mini-stop.sh → BLOCK → "run /interview run_id:xxx"]
+  /interview
+      │   Socratic questioning: 3 rounds × 2 questions = 6 total.
+      │   Round 1: current state. Round 2: desired change. Round 3: boundaries.
+      │   Synthesizes refined_goal. EnterPlanMode for user confirmation.
+      │   Writes .dev/requirements/run-{RUN_ID}/interview.json
+      │
+      ▼  [Stop: mini-stop.sh → BLOCK → "run /council refined_goal interview:<path>"]
    /council
-      │   Spawns 3–4 panelists in parallel via TeamCreate.
+      │   Loads interview.json. Uses refined_goal as debate topic.
+      │   Mandatory panelists: product-owner + domain expert + devil's advocate.
+      │   Mandatory lens: 사용자 가치 / 요구사항 충족도.
       │   Phase 1: structured opinions. Phase 2: direct rebuttals.
       │   Writes ADR to .dev/adr/YYYY-MM-DD-{slug}.md
       │
@@ -92,8 +101,11 @@ Hook configuration lives in `.claude/settings.json`. Two Stop hooks fire sequent
 ### `/mini-harness [goal]`
 Entry point. Accepts a goal string. The `mini-pre-tool-use.sh` hook creates `.claude/state/state.json` with the goal and timestamp. The skill itself does minimal work — its purpose is to be the first hook trigger. `mini-stop.sh` then blocks exit and instructs Claude to run `/council`.
 
+### `/interview`
+Socratic requirements interview. Asks 6 structured questions across 3 rounds (current state → desired change → boundaries), synthesizes answers into a `refined_goal`, and writes `.dev/requirements/run-{RUN_ID}/interview.json`. Uses `EnterPlanMode` to confirm the synthesized requirements before saving. The refined goal and constraints are then passed to `/council` as context.
+
 ### `/council`
-Structured architectural debate that produces an ADR. Derives 3–5 analysis lenses from the topic, spawns panelists in parallel via `TeamCreate` (including a devil's advocate), runs a two-phase debate (initial positions → direct rebuttals), and writes the final ADR to `.dev/adr/`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in env.
+Structured architectural debate that produces an ADR. Loads `interview.json` when available (passed via `interview:` arg from `mini-stop.sh`), using `refined_goal` as the debate topic. Always includes a **product-owner** panelist and a **사용자 가치 / 요구사항 충족도** lens. Derives 3–5 analysis lenses from the topic, spawns panelists in parallel via `TeamCreate` (including a devil's advocate), runs a two-phase debate (initial positions → direct rebuttals), and writes the final ADR to `.dev/adr/`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in env.
 
 ### `/mini-specify [goal] [adr:<path>]`
 Bridges the ADR to a task list. Optionally loads the ADR from the `adr:` parameter (passed automatically by `mini-stop.sh`). Searches `.mini-harness/learnings/*.md` by tag/keyword match and surfaces relevant past rules before planning begins. Writes `.dev/requirements/requirements.json`.
@@ -177,7 +189,7 @@ Quality gate: `mini-execute` only records entries where a clear, reusable rule c
 
 ```json
 {
-  "skill_name": "mini-harness | council | mini-specify | taskify | dependency-resolve | mini-execute | mini-compound",
+  "skill_name": "mini-harness | interview | council | mini-specify | taskify | dependency-resolve | mini-execute | mini-compound",
   "status": "processing | end",
   "goal": "<original goal string>",
   "timestamp": "<ISO-8601 UTC>",
@@ -223,7 +235,7 @@ scripts/
 
 .dev/
   adr/                     # Architecture Decision Records (output of /council)
-  requirements/            # requirements.json (output of /mini-specify)
+  requirements/            # run-{RUN_ID}/interview.json (output of /interview) + requirements.json (output of /mini-specify)
   task/                    # spec.json (output of /taskify + /dependency-resolve)
 
 kiosk/                     # Mini-project sandbox — test vehicle for the harness
