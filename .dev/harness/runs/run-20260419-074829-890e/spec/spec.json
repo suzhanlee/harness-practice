@@ -1,0 +1,79 @@
+{
+  "run_id": "20260419-074829-890e",
+  "goal": "현재 관리자 기능이 전무해 불편을 겪는 키오스크 관리자를 위해 메뉴 CRUD·가격 변경·품절 처리·주문 내역 조회 백엔드 로직을 DDD 레이어 구조로 추가",
+  "tasks": [
+    {
+      "action": "MenuItem 애그리거트에 change_price(new_price: Money) 메서드 추가",
+      "verification": "pytest tests/test_menu_item.py::test_change_price -v",
+      "step": [
+        "kiosk/domain/models/menu_item.py의 MenuItem 클래스 구조(frozen 여부) 확인",
+        "MenuItem에 change_price(self, new_price: Money) -> None 메서드 추가 — new_price.amount >= 0 불변식 Money가 이미 보장하므로 별도 검증 불필요",
+        "tests/test_menu_item.py에 test_change_price 테스트 추가 (변경 전후 price 값 검증)"
+      ],
+      "status": "end",
+      "dependencies": [],
+      "priority": "P0"
+    },
+    {
+      "action": "Order.confirm()에 품절 메뉴 available 가드 추가",
+      "verification": "pytest tests/test_order.py::test_confirm_raises_if_item_unavailable -v",
+      "step": [
+        "kiosk/domain/models/order.py의 OrderItem 구조 확인 — available 상태 전달 방식 결정(OrderItem에 is_available 필드 추가 또는 confirm() 시그니처 변경)",
+        "OrderItem에 is_available: bool = True 필드 추가(frozen dataclass이면 object.__setattr__ 패턴 참고)",
+        "Order.confirm()에 'any(not item.is_available for item in self.items)' 가드 추가 — 위반 시 ValueError('품절된 메뉴가 포함되어 있습니다') 발생",
+        "tests/test_order.py에 test_confirm_raises_if_item_unavailable 테스트 추가"
+      ],
+      "status": "end",
+      "dependencies": [],
+      "priority": "P0"
+    },
+    {
+      "action": "관리자 메뉴 CRUD use case 구현 (AddMenuItem, UpdateMenuItem, DeleteMenuItem)",
+      "verification": "pytest tests/admin/test_manage_menu.py -v",
+      "step": [
+        "kiosk/application/admin/ 디렉터리 생성 + __init__.py 추가",
+        "domain/repositories/menu_item_repository.py 인터페이스 메서드 시그니처 확인 후 manage_menu.py 작성 — AddMenuItemUseCase(menu_repo).execute(), UpdateMenuItemUseCase(menu_repo).execute(), DeleteMenuItemUseCase(menu_repo).execute() 구현",
+        "각 use case는 DTO 반환 — 금액 필드는 Decimal 타입 통일(str 변환 금지)",
+        "tests/admin/__init__.py 생성 후 tests/admin/test_manage_menu.py 작성 — 추가/수정/삭제 시나리오 테스트"
+      ],
+      "status": "end",
+      "dependencies": [
+        0,
+        1
+      ],
+      "priority": "P1"
+    },
+    {
+      "action": "관리자 가격 변경·품절 처리·주문 조회 use case 구현",
+      "verification": "pytest tests/admin/test_change_menu_price.py tests/admin/test_mark_menu_unavailable.py tests/admin/test_query_orders.py -v",
+      "step": [
+        "change_menu_price.py 작성 — ChangeMenuPriceUseCase(menu_repo).execute(menu_item_id, new_price_str) → MenuItem.change_price() 호출 후 save",
+        "mark_menu_unavailable.py 작성 — MarkMenuUnavailableUseCase(menu_repo, order_repo).execute(menu_item_id) → MenuItem.mark_unavailable() 호출 + PENDING Order의 해당 OrderItem.is_available = False 업데이트",
+        "query_orders.py 작성 — QueryOrdersUseCase(order_repo).execute(status_filter=None) → OrderRepository.find_by_status() 또는 전체 조회 후 OrderSummaryDTO 리스트 반환",
+        "tests/admin/에 test_change_menu_price.py, test_mark_menu_unavailable.py, test_query_orders.py 작성"
+      ],
+      "status": "end",
+      "dependencies": [
+        0,
+        1,
+        2
+      ],
+      "priority": "P1"
+    },
+    {
+      "action": "kiosk/cli.py build_dependencies()에 관리자 use case admin_* 키로 등록",
+      "verification": "pytest tests/admin/ -v",
+      "step": [
+        "kiosk/cli.py의 build_dependencies() 함수에서 application/admin/ 모듈 import",
+        "admin_add_menu, admin_update_menu, admin_delete_menu, admin_change_price, admin_mark_unavailable, admin_query_orders 키로 use case 인스턴스 등록",
+        "pytest tests/admin/ -v 전체 실행으로 모든 관리자 기능 테스트 통과 확인"
+      ],
+      "status": "end",
+      "dependencies": [
+        2,
+        3
+      ],
+      "priority": "P2"
+    }
+  ]
+}
