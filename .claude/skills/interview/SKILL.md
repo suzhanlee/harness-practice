@@ -28,7 +28,7 @@ allowed-tools:
 
 ```bash
 RUN_ID=$(echo "$ARGS" | grep -o 'run_id:[^ ]*' | cut -d: -f2)
-STATE_FILE=".dev/harness/runs/run-${RUN_ID}/state.json"
+STATE_FILE=".dev/harness/runs/run-${RUN_ID}/state/state.json"
 GOAL=$(jq -r '.goal' "$STATE_FILE")
 INTERVIEW_PATH=$(jq -r '.paths.interview' "$STATE_FILE")
 ```
@@ -199,3 +199,4 @@ Write 완료 후 출력:
 - Write는 반드시 Step 5의 AskUserQuestion에서 "이대로 진행" 선택 후에만 실행한다.
 - EnterPlanMode/ExitPlanMode는 이 스킬에서 사용하지 않는다. 확인은 AskUserQuestion으로만 처리한다.
 - run_id가 없으면(수동 호출) `INTERVIEW_PATH=".dev/harness/interview.json"`을 기본값으로 사용한다.
+  (`paths.interview` 반환값: `.dev/harness/runs/run-{id}/interview/interview.json`)

@@ -30,7 +30,7 @@ allowed-tools:
 **run_id가 있는 경우** (mini-harness 체인 실행):
 ```bash
 RUN_ID=$(echo "$ARGS" | grep -o 'run_id:[^ ]*' | cut -d: -f2)
-SPEC_PATH=$(jq -r '.paths.spec' ".dev/harness/runs/run-${RUN_ID}/state.json")
+SPEC_PATH=$(jq -r '.paths.spec' ".dev/harness/runs/run-${RUN_ID}/state/state.json")
 ```
 
 **run_id가 없는 경우** (수동 호출 — backward compatibility):

@@ -45,7 +45,7 @@ RUN_ID=$(echo "$ARGS" | grep -o 'run_id:[^ ]*' | cut -d: -f2)
 
 **run_id가 있는 경우** (mini-harness 체인):
 ```bash
-STATE_FILE=".dev/harness/runs/run-${RUN_ID}/state.json"
+STATE_FILE=".dev/harness/runs/run-${RUN_ID}/state/state.json"
 ADR_DIR=$(jq -r '.paths.adr_dir' "$STATE_FILE")
 # ADR 파일명: $ADR_DIR/YYYY-MM-DD-{topic-slug}.md
 ```
