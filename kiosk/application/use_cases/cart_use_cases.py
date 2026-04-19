@@ -4,6 +4,7 @@ from typing import List, Optional
 from kiosk.domain.models.order import Order, OrderItem, OrderStatus
 from kiosk.domain.models.value_objects import OrderId, MenuItemId, Money
 from kiosk.domain.repositories.order_repository import OrderRepository
+from kiosk.domain.repositories.menu_item_repository import MenuItemRepository
 
 
 @dataclass
@@ -23,11 +24,29 @@ class CartDTO:
     item_count: int
 
 
+class SetStockUseCase:
+    def __init__(self, menu_repo: MenuItemRepository):
+        self.menu_repo = menu_repo
+
+    def execute(self, menu_item_id: str, stock: int) -> None:
+        menu_item = self.menu_repo.find_by_id(MenuItemId.from_str(menu_item_id))
+        if menu_item is None:
+            raise ValueError(f"메뉴 아이템을 찾을 수 없습니다: {menu_item_id}")
+        menu_item.set_stock(stock)
+        self.menu_repo.save(menu_item)
+
+
 class AddToCartUseCase:
-    def __init__(self, order_repo: OrderRepository):
+    def __init__(self, order_repo: OrderRepository, menu_repo: Optional[MenuItemRepository] = None):
         self.order_repo = order_repo
+        self.menu_repo = menu_repo
 
     def execute(self, order_id: str, menu_item_id: str, name: str, unit_price_amount: str, quantity: int) -> CartDTO:
+        if self.menu_repo is not None:
+            menu_item = self.menu_repo.find_by_id(MenuItemId.from_str(menu_item_id))
+            if menu_item is not None and not menu_item.has_enough_stock(quantity):
+                raise ValueError(f"'{name}' 재고가 부족합니다.")
+
         order = self._get_or_create_cart(order_id)
 
         item = OrderItem(
