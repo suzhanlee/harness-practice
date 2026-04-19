@@ -21,6 +21,7 @@ class OrderItem:
     name: str
     unit_price: Money
     quantity: int
+    is_available: bool = True
 
     def __post_init__(self):
         if self.quantity <= 0:
@@ -101,6 +102,8 @@ class Order:
             raise ValueError("대기중 상태의 주문만 확인할 수 있습니다.")
         if not self.items:
             raise ValueError("주문 항목이 없습니다.")
+        if any(not item.is_available for item in self.items):
+            raise ValueError("품절된 메뉴가 포함되어 있습니다.")
         self.status = OrderStatus.CONFIRMED
         self._record_history()
 

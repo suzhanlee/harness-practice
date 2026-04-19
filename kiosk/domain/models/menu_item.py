@@ -27,6 +27,9 @@ class MenuItem:
     def mark_available(self):
         self.available = True
 
+    def change_price(self, new_price: Money) -> None:
+        self.price = new_price
+
     def update_price(self, new_price: Money):
         if new_price.amount <= 0:
             raise ValueError("가격은 0보다 커야 합니다.")

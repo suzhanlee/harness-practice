@@ -26,3 +26,7 @@ class InMemoryMenuItemRepository(MenuItemRepository):
 
     def find_available(self) -> List[MenuItem]:
         return [item for item in self._store.values() if item.available]
+
+    def delete(self, menu_item_id: MenuItemId) -> None:
+        with self._lock:
+            self._store.pop(menu_item_id, None)

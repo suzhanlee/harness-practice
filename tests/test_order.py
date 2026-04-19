@@ -132,6 +132,20 @@ class TestOrder:
         with pytest.raises(ValueError, match="대기중"):
             order.add_item(make_order_item())
 
+    def test_confirm_raises_if_item_unavailable(self):
+        order = Order.create()
+        item = make_order_item()
+        item.is_available = False
+        order.add_item(item)
+        with pytest.raises(ValueError, match="품절"):
+            order.confirm()
+
+    def test_confirm_succeeds_when_all_items_available(self):
+        order = Order.create()
+        order.add_item(make_order_item())
+        order.confirm()
+        assert order.status == OrderStatus.CONFIRMED
+
 
 class TestOrderHistory:
     def test_order_creation_records_initial_history(self):

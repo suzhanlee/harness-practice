@@ -25,3 +25,7 @@ class MenuItemRepository(ABC):
     @abstractmethod
     def find_available(self) -> List[MenuItem]:
         pass
+
+    @abstractmethod
+    def delete(self, menu_item_id: MenuItemId) -> None:
+        pass

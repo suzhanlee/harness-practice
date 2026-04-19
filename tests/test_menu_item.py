@@ -22,6 +22,15 @@ class TestMenuItem:
         burger.mark_available()
         assert burger.available is True
 
+    def test_change_price(self, burger):
+        new_price = Money(Decimal("7000"))
+        burger.change_price(new_price)
+        assert burger.price.amount == Decimal("7000")
+
+    def test_change_price_to_zero(self, burger):
+        burger.change_price(Money(Decimal("0")))
+        assert burger.price.amount == Decimal("0")
+
     def test_update_price(self, burger):
         new_price = Money(Decimal("6000"))
         burger.update_price(new_price)
