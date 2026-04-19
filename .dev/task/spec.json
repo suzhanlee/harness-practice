@@ -1,0 +1,50 @@
+{
+  "run_id": "ca37cedf",
+  "goal": "재고 초과 주문을 방지하고 동시 구매 시 정확한 재고 처리를 보장하기 위해, MenuItem에 재고 속성을 추가하고 결제 시 재고 차감·품절 차단 기능을 DDD 레이어 구조로 구현",
+  "tasks": [
+    {
+      "action": "Stock Value Object 및 MenuItem 재고 도메인 메서드 구현",
+      "verification": "pytest tests/test_value_objects.py tests/test_menu_item.py -v",
+      "step": [
+        "value_objects.py에 Stock(frozen dataclass, value: int, >=0 불변식) 추가 — unlimited() 팩토리 메서드 포함, decrease(qty)/restock(qty)는 object.__setattr__() 패턴으로 내부 상태 변경",
+        "menu_item.py에 stock: Stock = Stock.unlimited() 필드 추가 — has_enough_stock(qty: int) -> bool, set_stock(n: int), decrease_stock(qty: int), restock(qty: int) 메서드 구현",
+        "tests/test_value_objects.py에 Stock 불변식(음수 거부)·unlimited 팩토리·decrease/restock 테스트 추가",
+        "tests/test_menu_item.py에 set_stock, has_enough_stock, decrease_stock 메서드 테스트 추가"
+      ],
+      "status": "end",
+      "dependencies": [],
+      "priority": "P0"
+    },
+    {
+      "action": "InventoryDomainService 신설 및 InMemoryMenuItemRepository 동시성 보호 구현",
+      "verification": "pytest tests/test_domain_service.py tests/test_cart_integration.py -v",
+      "step": [
+        "domain/repositories/menu_item_repository.py 인터페이스 메서드 시그니처(save, find_by_id, find_all) 확인 후 변경 없이 유지",
+        "domain/services/inventory_domain_service.py 신설 — validate_stock_for_order(order, menu_repo), consume_stock_for_order(order, menu_repo) 구현: 주문 아이템 루프하며 MenuItem.has_enough_stock() 검증 → MenuItem.decrease_stock() → menu_repo.save()",
+        "infrastructure/repositories/in_memory_menu_item_repository.py에 threading.Lock 추가 — save() 메서드 내부를 with self._lock: 블록으로 보호하여 read-modify-write 원자화",
+        "tests/test_domain_service.py에 InventoryDomainService.consume_stock_for_order 단위 테스트 및 동시 차감 시나리오(threading.Thread 2개) 테스트 추가"
+      ],
+      "status": "end",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1"
+    },
+    {
+      "action": "SetStockUseCase 신설 및 기존 use case 재고 검증·차감 연동",
+      "verification": "pytest tests/test_use_cases.py tests/test_cart_integration.py -v",
+      "step": [
+        "application/use_cases/cart_use_cases.py에 SetStockUseCase 추가 — menu_repo.find_by_id() → menu_item.set_stock(stock) → menu_repo.save() 순서로 구현",
+        "AddToCartUseCase에 menu_item.has_enough_stock(quantity) 사전 검증 추가 — 재고 부족 시 ValueError 발생",
+        "application/use_cases/process_payment.py(또는 place_order.py)의 ProcessPaymentUseCase에 mark_paid() 직후 InventoryDomainService.consume_stock_for_order(order, menu_repo) 호출 연동",
+        "tests/test_use_cases.py에 SetStockUseCase 동작·AddToCart 재고 부족 차단·ProcessPayment 재고 차감 시나리오 테스트 추가"
+      ],
+      "status": "end",
+      "dependencies": [
+        0,
+        1
+      ],
+      "priority": "P2"
+    }
+  ]
+}

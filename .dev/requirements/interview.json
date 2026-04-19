@@ -1,0 +1,21 @@
+{
+  "run_id": "ca37cedf",
+  "original_goal": "kiosk 프로젝트를 보고 적절한 다음 기능 추천해줘",
+  "refined_goal": "재고 초과 주문을 방지하고 동시 구매 시 정확한 재고 처리를 보장하기 위해, MenuItem에 재고 속성을 추가하고 결제 시 재고 차감·품절 차단 기능을 DDD 레이어 구조로 구현",
+  "problem": "현재 kiosk에는 재고 관리 기능이 없어 메뉴 아이템 재고 설정/차감/동시성 처리가 기술적으로 불가능한 상태",
+  "users": ["키오스크 운영자"],
+  "success_criteria": [
+    "재고 설정→구매시 차감→품절 시 주문 차단 플로우 동작",
+    "테스트 케이스 통과",
+    "동시 주문에도 재고 음수 방지",
+    "재고 설정부터 구매 완료까지 전체 흐름 작동"
+  ],
+  "out_of_scope": [
+    "UI/프론트엔드 제외",
+    "외부 API 연동 제외"
+  ],
+  "constraints": [
+    "DDD domain/application/infrastructure 레이어 경계 준수",
+    "기존 passing 테스트 유지"
+  ]
+}

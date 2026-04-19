@@ -1,0 +1,18 @@
+{
+  "run_id": "ca37cedf",
+  "goal": "재고 초과 주문을 방지하고 동시 구매 시 정확한 재고 처리를 보장하기 위해, MenuItem에 재고 속성을 추가하고 결제 시 재고 차감·품절 차단 기능을 DDD 레이어 구조로 구현",
+  "requirements": [
+    {
+      "index": 1,
+      "content": "Stock Value Object 및 MenuItem 재고 도메인 메서드 구현 — value_objects.py에 Stock(value: int, unlimited() factory) 추가, MenuItem에 stock 속성·has_enough_stock()/decrease_stock()/restock()/set_stock() 추가 (⚠️ past rule: frozen dataclass는 object.__setattr__() 패턴 사용, VO는 초기부터 완전한 인터페이스 제공)"
+    },
+    {
+      "index": 2,
+      "content": "InventoryDomainService 신설 및 InMemoryMenuItemRepository 동시성 보호 구현 — domain/services/inventory_domain_service.py 신설(validate_stock_for_order, consume_stock_for_order), InMemoryMenuItemRepository에 threading.Lock 추가하여 save() 내부 read-modify-write 보호 (⚠️ past rule: Repository 인터페이스 메서드 시그니처 먼저 확인 후 구현)"
+    },
+    {
+      "index": 3,
+      "content": "SetStockUseCase 신설 및 기존 use case 재고 검증·차감 연동 — SetStockUseCase 신설(운영자용 재고 설정), ProcessPaymentUseCase에 mark_paid() 직후 InventoryDomainService.consume_stock_for_order() 호출 연동, AddToCartUseCase·CheckoutUseCase에 has_enough_stock() 사전 검증 추가"
+    }
+  ]
+}
