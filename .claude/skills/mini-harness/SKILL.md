@@ -24,13 +24,13 @@ allowed-tools:
 
 ## 오케스트레이션 체인 순서
 
-1. **interview** — 소크라테스 문답(6개 질문)으로 goal 구체화, `interview.json` 저장
-2. **council** — interview.json + goal로 ADR 생성 (product-owner 패널 포함)
-3. **mini-specify** — goal + ADR로 요구사항 생성, `.dev/requirements/requirements.json` 저장
-4. **taskify** — requirements.json 읽기, 태스크 분해, `.dev/task/spec.json` 저장
+1. **interview** — 소크라테스 문답(6개 질문)으로 goal 구체화, `.dev/requirements/run-{run_id}/interview.json` 저장
+2. **council** — interview.json + goal로 ADR 생성 (product-owner 패널 포함), `.dev/adr/` 저장
+3. **mini-specify** — goal + ADR로 요구사항 생성, `.dev/requirements/run-{run_id}/requirements.json` 저장
+4. **taskify** — requirements.json 읽기, 태스크 분해, `.dev/task/run-{run_id}/spec.json` 저장
 5. **dependency-resolve** — spec.json의 task 간 의존성 분석, dependencies[] 및 priority 필드 추가
 6. **mini-execute** — spec.json 읽기, 의존성 순서에 따라 모든 태스크 실행
-7. **mini-compound** — session learnings → 영구 파일 승격
+7. **mini-compound** — `.mini-harness/session/learnings.json` → `.mini-harness/learnings/*.md` 영구 파일 승격
 
 ## 동작 방식
 
