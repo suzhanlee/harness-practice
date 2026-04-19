@@ -17,6 +17,10 @@ from infrastructure.repositories.in_memory_payment_repository import InMemoryPay
 from infrastructure.repositories.in_memory_discount_repository import InMemoryDiscountRepository
 from infrastructure.repositories.in_memory_user_repository import InMemoryUserRepository
 from infrastructure.seed_data import seed_menu
+from application.admin.manage_menu import AddMenuItemUseCase, UpdateMenuItemUseCase, DeleteMenuItemUseCase
+from application.admin.change_menu_price import ChangeMenuPriceUseCase
+from application.admin.mark_menu_unavailable import MarkMenuUnavailableUseCase
+from application.admin.query_orders import QueryOrdersUseCase
 
 
 def build_dependencies():
@@ -48,6 +52,13 @@ def build_dependencies():
     get_order_history = GetOrderHistoryUseCase(order_repo)
     get_order_detail = GetOrderDetailUseCase(order_repo)
 
+    admin_add_menu = AddMenuItemUseCase(menu_repo)
+    admin_update_menu = UpdateMenuItemUseCase(menu_repo)
+    admin_delete_menu = DeleteMenuItemUseCase(menu_repo)
+    admin_change_price = ChangeMenuPriceUseCase(menu_repo)
+    admin_mark_unavailable = MarkMenuUnavailableUseCase(menu_repo, order_repo)
+    admin_query_orders = QueryOrdersUseCase(order_repo)
+
     return {
         'get_menu': get_menu,
         'place_order': place_order,
@@ -68,6 +79,12 @@ def build_dependencies():
         'authenticate_user': authenticate_user,
         'get_order_history': get_order_history,
         'get_order_detail': get_order_detail,
+        'admin_add_menu': admin_add_menu,
+        'admin_update_menu': admin_update_menu,
+        'admin_delete_menu': admin_delete_menu,
+        'admin_change_price': admin_change_price,
+        'admin_mark_unavailable': admin_mark_unavailable,
+        'admin_query_orders': admin_query_orders,
     }
 
 
