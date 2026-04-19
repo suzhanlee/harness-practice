@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from .value_objects import MenuItemId, Money, DiscountRule
+from .value_objects import MenuItemId, Money, DiscountRule, Stock
 
 
 class MenuCategory(Enum):
@@ -19,6 +19,7 @@ class MenuItem:
     price: Money
     category: MenuCategory
     available: bool = True
+    stock: Stock = field(default_factory=Stock.unlimited)
 
     def mark_unavailable(self):
         self.available = False
@@ -30,6 +31,22 @@ class MenuItem:
         if new_price.amount <= 0:
             raise ValueError("가격은 0보다 커야 합니다.")
         self.price = new_price
+
+    def has_enough_stock(self, qty: int) -> bool:
+        return self.stock.has_enough(qty)
+
+    def set_stock(self, n: int) -> None:
+        self.stock = Stock(n)
+
+    def decrease_stock(self, qty: int) -> None:
+        self.stock.decrease(qty)
+        if not self.stock.is_unlimited() and self.stock.value == 0:
+            self.available = False
+
+    def restock(self, qty: int) -> None:
+        self.stock.restock(qty)
+        if not self.available:
+            self.available = True
 
     def get_discounted_price(self, discount_rule: DiscountRule) -> Money:
         if discount_rule.discount_type == "fixed":
