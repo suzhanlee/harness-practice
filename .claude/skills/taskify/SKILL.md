@@ -4,7 +4,7 @@ description: |
   Use when the user says "/taskify".
   Reads requirements from .dev/requirements/requirements.json,
   analyzes the codebase tech stack, breaks down requirements into
-  structured tasks, and writes the result to .dev/task/spec.json.
+  structured tasks, and writes the result to $SPEC_PATH.
 allowed-tools:
   - Glob
   - Read
@@ -17,7 +17,7 @@ allowed-tools:
 ## Purpose
 
 `.dev/requirements/requirements.json`의 요구사항을 읽어 코드베이스 기술 스택을 파악한 뒤,
-구현 가능한 task 단위로 분해하여 `.dev/task/spec.json`으로 저장한다.
+구현 가능한 task 단위로 분해하여 `$SPEC_PATH`으로 저장한다.
 
 포맷 상세는 reference 파일을 참조한다:
 - `.claude/skills/taskify/reference/formats.md` — 입출력 포맷 및 예시
@@ -25,38 +25,58 @@ allowed-tools:
 - `.claude/skills/taskify/reference/templates/requirements-item.md` — requirements.json 단일 항목 포맷
 - `.claude/skills/taskify/reference/templates/verification-cmd.md` — 스택별 verification 명령어 패턴
 
+## Args 파싱
+
+인자에서 `run_id:xxx`를 추출하여 run-scoped 경로를 취득한다.
+
+**run_id가 있는 경우** (mini-harness 체인 실행):
+```bash
+RUN_ID=$(echo "$ARGS" | grep -o 'run_id:[^ ]*' | cut -d: -f2)
+STATE_FILE=".claude/state/runs/run-${RUN_ID}.json"
+REQ_PATH=$(jq -r '.paths.requirements' "$STATE_FILE")
+SPEC_PATH=$(jq -r '.paths.spec' "$STATE_FILE")
+```
+
+**run_id가 없는 경우** (수동 호출 — backward compatibility):
+```bash
+REQ_PATH=".dev/requirements/requirements.json"
+SPEC_PATH="$SPEC_PATH"
+```
+
+이후 모든 단계에서 `$REQ_PATH`, `$SPEC_PATH`를 사용한다.
+
 ## Workflow
 
 ### Phase 1: requirements.json 읽기 및 검증
 
 **1-1. 파일 존재 확인**
 ```bash
-test -f .dev/requirements/requirements.json && echo "exists" || echo "NOT FOUND"
+test -f $REQ_PATH && echo "exists" || echo "NOT FOUND"
 ```
 파일이 없으면 즉시 중단하고 사용자에게 경로를 안내한다.
 
 **1-2. JSON 구조 검증**
 ```bash
 jq 'if (.requirements | type) == "array" then "valid" else "invalid: .requirements must be array" end' \
-  .dev/requirements/requirements.json
+  $REQ_PATH
 ```
 
 **1-3. 필수 필드 누락 검사**
 ```bash
 jq '[.requirements[] | select(.index == null or .content == null)] | if length == 0 then "OK: no missing fields" else "MISSING FIELDS: \(.)" end' \
-  .dev/requirements/requirements.json
+  $REQ_PATH
 ```
 `"MISSING FIELDS: ..."` 가 출력되면 해당 index를 사용자에게 보고하고 중단한다.
 
 **1-4. 요구사항 목록 추출**
 ```bash
-jq -r '.requirements[] | "\(.index)|\(.content)"' .dev/requirements/requirements.json
+jq -r '.requirements[] | "\(.index)|\(.content)"' $REQ_PATH
 ```
 `index|content` 형태로 파싱하여 내부 목록으로 보유한다.
 
 **1-5. 전체 수 확인**
 ```bash
-jq '.requirements | length' .dev/requirements/requirements.json
+jq '.requirements | length' $REQ_PATH
 ```
 
 ### Phase 2: 기술 스택 분석
@@ -92,7 +112,7 @@ Phase 1에서 추출한 요구사항 목록을 순서대로 처리하여 task로
 
 **작성 기준**
 
-→ 참조: `formats.md` > `## 출력: .dev/task/spec.json` > `### 작성 기준`
+→ 참조: `formats.md` > `## 출력: $SPEC_PATH` > `### 작성 기준`
 
 **task 오브젝트 포맷**
 
@@ -102,12 +122,12 @@ Phase 1에서 추출한 요구사항 목록을 순서대로 처리하여 task로
 
 **4-1. 출력 디렉터리 생성**
 ```bash
-mkdir -p .dev/task
+mkdir -p "$(dirname $SPEC_PATH)"
 ```
 
 **4-2. spec.json Write**
 
-`.dev/task/spec.json`에 task 배열로 저장한다. 각 task의 포맷과 필드 규칙은 다음을 참조한다:
+`$SPEC_PATH`에 task 배열로 저장한다. 각 task의 포맷과 필드 규칙은 다음을 참조한다:
 
 → 참조: `templates/spec-task.md` > `## taskify 직후 포맷`
 
@@ -117,24 +137,24 @@ mkdir -p .dev/task
 
 ```bash
 # [검사 1] tasks 배열 존재 여부
-jq 'if (.tasks | type) == "array" then "OK: tasks is array" else "INVALID: .tasks must be array" end' .dev/task/spec.json
+jq 'if (.tasks | type) == "array" then "OK: tasks is array" else "INVALID: .tasks must be array" end' $SPEC_PATH
 ```
 
 ```bash
 # [검사 2] 필수 필드 누락 task 검사 (action, verification, step, status)
 jq '[.tasks[] | select(.action == null or .verification == null or .step == null or .status == null)] | if length == 0 then "OK: no incomplete tasks" else map("INCOMPLETE: \(.action // "unknown")") end' \
-  .dev/task/spec.json
+  $SPEC_PATH
 ```
 
 ```bash
 # [검사 3] step이 빈 배열인 task 검사
 jq '[.tasks[] | select((.step | length) == 0) | .action] | if length == 0 then "OK: all tasks have steps" else "EMPTY STEPS: \(.)" end' \
-  .dev/task/spec.json
+  $SPEC_PATH
 ```
 
 ```bash
 # [검사 4] 최종 task 수 확인
-jq '"task count: \(.tasks | length)"' .dev/task/spec.json
+jq '"task count: \(.tasks | length)"' $SPEC_PATH
 ```
 
 `"INVALID"` 또는 `"INCOMPLETE"` 또는 `"EMPTY STEPS"` 가 출력된 항목은 수정 후 해당 검사만 재실행한다.
@@ -146,7 +166,7 @@ jq '"task count: \(.tasks | length)"' .dev/task/spec.json
   - 요구사항: N개 (.dev/requirements/requirements.json)
   - 생성된 tasks: M개
   - 기술 스택: {판별된 스택}
-  - 저장: .dev/task/spec.json
+  - 저장: $SPEC_PATH
 ```
 
 ## Rules

@@ -2,7 +2,7 @@
 name: dependency-resolve
 description: |
   Use when the user says "/dependency-resolve".
-  Analyzes task dependencies in .dev/task/spec.json,
+  Analyzes task dependencies in $SPEC_PATH,
   identifies technical inter-task dependencies, validates for circular dependencies,
   and updates spec.json with dependencies[] and priority fields.
 allowed-tools:
@@ -16,12 +16,29 @@ allowed-tools:
 
 ## Purpose
 
-`taskify`가 생성한 `.dev/task/spec.json`의 task들 사이 기술적 의존성을 분석하여,
+`taskify`가 생성한 `$SPEC_PATH`의 task들 사이 기술적 의존성을 분석하여,
 각 task에 `dependencies: [task_indices]`와 `priority: P0|P1|P2` 필드를 추가한다.
 
 의존성 분석을 통해 `mini-execute`가 올바른 순서로 task를 실행하고, 향후 병렬 실행 최적화도 가능하게 한다.
 
 ---
+
+## Args 파싱
+
+인자에서 `run_id:xxx`를 추출하여 run-scoped 경로를 취득한다.
+
+**run_id가 있는 경우** (mini-harness 체인 실행):
+```bash
+RUN_ID=$(echo "$ARGS" | grep -o 'run_id:[^ ]*' | cut -d: -f2)
+SPEC_PATH=$(jq -r '.paths.spec' ".claude/state/runs/run-${RUN_ID}.json")
+```
+
+**run_id가 없는 경우** (수동 호출 — backward compatibility):
+```bash
+SPEC_PATH="$SPEC_PATH"
+```
+
+이후 모든 단계에서 `$SPEC_PATH`를 사용한다.
 
 ## Workflow
 
@@ -30,19 +47,19 @@ allowed-tools:
 **1-1. spec.json 존재 확인**
 
 ```bash
-test -f .dev/task/spec.json && echo "exists" || echo "NOT FOUND"
+test -f $SPEC_PATH && echo "exists" || echo "NOT FOUND"
 ```
 
 파일이 없으면 즉시 중단:
 ```
-✗ .dev/task/spec.json 파일이 없습니다. taskify를 먼저 실행하세요.
+✗ $SPEC_PATH 파일이 없습니다. taskify를 먼저 실행하세요.
 ```
 
 **1-2. 구조 검증**
 
 ```bash
 jq 'if (.tasks | type) == "array" then "valid" else "invalid: .tasks must be array" end' \
-  .dev/task/spec.json
+  $SPEC_PATH
 ```
 
 검증 실패 시 중단.
@@ -50,7 +67,7 @@ jq 'if (.tasks | type) == "array" then "valid" else "invalid: .tasks must be arr
 **1-3. Task 목록 로드**
 
 ```bash
-jq -r '.tasks | length' .dev/task/spec.json
+jq -r '.tasks | length' $SPEC_PATH
 ```
 
 task 수를 파악하고 출력:
@@ -118,7 +135,7 @@ jq -r '
       ]
     }
   )
-' .dev/task/spec.json
+' $SPEC_PATH
 ```
 
 ---
@@ -168,7 +185,7 @@ jq '.tasks |= map(
     "dependencies": [...],  # Step 2에서 분석한 의존성
     "priority": "P0|P1|P2"  # Step 4에서 할당한 priority
   }
-)' .dev/task/spec.json > tmp && mv tmp .dev/task/spec.json
+)' $SPEC_PATH > tmp && mv tmp $SPEC_PATH
 ```
 
 ---
