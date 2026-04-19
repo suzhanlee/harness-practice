@@ -1,7 +1,7 @@
 import pytest
 from decimal import Decimal
 
-from kiosk.domain.models.value_objects import Money, MenuItemId, OrderId, PaymentId, DiscountId, CouponCode, DiscountRule
+from kiosk.domain.models.value_objects import Money, MenuItemId, OrderId, PaymentId, DiscountId, CouponCode, DiscountRule, Stock
 
 
 class TestMoney:
@@ -90,6 +90,73 @@ class TestCouponCode:
     def test_coupon_code_whitespace_raises(self):
         with pytest.raises(ValueError, match="비어있을 수"):
             CouponCode("   ")
+
+
+class TestStock:
+    def test_create_stock(self):
+        s = Stock(10)
+        assert s.value == 10
+
+    def test_stock_negative_raises(self):
+        with pytest.raises(ValueError, match="0 이상"):
+            Stock(-1)
+
+    def test_stock_zero_allowed(self):
+        s = Stock(0)
+        assert s.value == 0
+
+    def test_unlimited_factory(self):
+        s = Stock.unlimited()
+        assert s.is_unlimited() is True
+
+    def test_unlimited_has_enough_always_true(self):
+        s = Stock.unlimited()
+        assert s.has_enough(9999) is True
+
+    def test_has_enough_true(self):
+        s = Stock(5)
+        assert s.has_enough(5) is True
+        assert s.has_enough(3) is True
+
+    def test_has_enough_false(self):
+        s = Stock(5)
+        assert s.has_enough(6) is False
+
+    def test_decrease(self):
+        s = Stock(10)
+        s.decrease(3)
+        assert s.value == 7
+
+    def test_decrease_to_zero(self):
+        s = Stock(3)
+        s.decrease(3)
+        assert s.value == 0
+
+    def test_decrease_insufficient_raises(self):
+        s = Stock(2)
+        with pytest.raises(ValueError, match="재고가 부족"):
+            s.decrease(3)
+
+    def test_decrease_unlimited_no_op(self):
+        s = Stock.unlimited()
+        s.decrease(100)
+        assert s.is_unlimited() is True
+
+    def test_restock(self):
+        s = Stock(5)
+        s.restock(3)
+        assert s.value == 8
+
+    def test_restock_zero_raises(self):
+        s = Stock(5)
+        with pytest.raises(ValueError, match="0보다"):
+            s.restock(0)
+
+    def test_restock_unlimited_converts_to_finite(self):
+        s = Stock.unlimited()
+        s.restock(10)
+        assert s.is_unlimited() is False
+        assert s.value == 10
 
 
 class TestDiscountRule:
