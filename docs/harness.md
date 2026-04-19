@@ -15,12 +15,13 @@ The harness is designed for **compound-practice**, a repository for practicing s
 ```
 
 This single command:
-1. Runs `/council` to debate architectural decisions
-2. Runs `/mini-specify` to understand requirements
-3. Runs `/taskify` to break requirements into executable tasks
-4. Runs `/dependency-resolve` to order tasks by dependencies
-5. Runs `/mini-execute` to implement tasks (with alternating validation loop)
-6. Runs `/mini-compound` to promote learnings to permanent files
+1. Runs `/interview` to clarify requirements via Socratic questioning → `interview.json`
+2. Runs `/council` to debate architectural decisions (informed by interview.json)
+3. Runs `/mini-specify` to understand requirements
+4. Runs `/taskify` to break requirements into executable tasks
+5. Runs `/dependency-resolve` to order tasks by dependencies
+6. Runs `/mini-execute` to implement tasks (with alternating validation loop)
+7. Runs `/mini-compound` to promote learnings to permanent files
 
 No manual intervention needed between steps.
 
@@ -36,7 +37,22 @@ No manual intervention needed between steps.
 - **Output**: `state.json` created with `{skill_name, goal, timestamp, status}`
 - **Action**: Minimal work; orchestration delegated to Stop hooks
 
-### 2. `/council [topic]` (Structured Debate → ADR)
+### 2. `/interview [run_id:xxx]` (Socratic Requirements Interview)
+
+**Clarifies the goal via structured questioning before architectural debate.**
+
+- **Input**: run_id (reads original goal from state.json)
+- **Output**: `.dev/requirements/run-{RUN_ID}/interview.json`
+- **Flow**:
+  1. Round 1 (Current State): 2 questions — what exists now, what triggered the need
+  2. Round 2 (Desired Change): 2 questions — what changes after completion, how to measure success
+  3. Round 3 (Boundaries): 2 questions — what's excluded, design constraints
+  4. Synthesizes all answers into `refined_goal` (format: `[verb] [what] [for whom / to solve what]`)
+  5. EnterPlanMode: shows synthesized interview.json for user confirmation
+  6. Writes interview.json after ExitPlanMode approval
+- **Output schema**: `original_goal`, `refined_goal`, `problem`, `users`, `success_criteria`, `out_of_scope`, `constraints`
+
+### 3. `/council [topic]` (Structured Debate → ADR)
 
 **Deliberative decision-making panel.** Uses 4-panel teams to debate architectural decisions.
 
@@ -50,7 +66,7 @@ No manual intervention needed between steps.
   5. Final ADR synthesized from all positions with tradeoff analysis
 - **Reference**: `.claude/skills/council/reference/` (adr-template.md, opinion-template.md, rebuttal-template.md, summary-template.md)
 
-### 3. `/mini-specify [goal] [adr:<path>]` (Requirement Planning)
+### 4. `/mini-specify [goal] [adr:<path>]` (Requirement Planning)
 
 **Bridges ADR to task breakdown.** Searches past learnings and generates a prioritized requirement list.
 
@@ -63,7 +79,7 @@ No manual intervention needed between steps.
   4. Generates task list informed by past friction points
 - **Output schema**: Array of requirement objects with `index`, `content`
 
-### 4. `/taskify` (Task Breakdown)
+### 5. `/taskify` (Task Breakdown)
 
 **Converts requirements into executable task specs.**
 
@@ -73,7 +89,7 @@ No manual intervention needed between steps.
 - **Task Schema**: Each task has `index`, `action` (verb+object), `step` (3–5 implementation steps), `verification` (runnable CLI command), `status: "not_start"`
 - **Reference**: `.claude/skills/taskify/reference/` (formats.md, jq-commands.md, templates/)
 
-### 5. `/dependency-resolve` (Task Ordering)
+### 6. `/dependency-resolve` (Task Ordering)
 
 **Infers and validates inter-task dependencies.**
 
@@ -87,7 +103,7 @@ No manual intervention needed between steps.
 - **Validation**: Rejects circular dependencies via DFS
 - **Priority Assignment**: P0 (no deps), P1 (has deps), P2 (chain terminal)
 
-### 6. `/mini-execute` (Implementation Loop + Ralph Loop)
+### 7. `/mini-execute` (Implementation Loop + Ralph Loop)
 
 **Implements all tasks in dependency order and records friction.**
 
@@ -106,7 +122,7 @@ No manual intervention needed between steps.
   - Remaining incomplete tasks + `last_action = "validate"` → block, re-run `/mini-execute`
   - No remaining tasks → approve, hand off to mini-compound
 
-### 7. `/mini-compound` (Learning Promotion)
+### 8. `/mini-compound` (Learning Promotion)
 
 **Promotes session learnings to permanent searchable files.**
 
@@ -168,7 +184,8 @@ state.json doesn't exist
   → else approve exit
 
 state.json exists, skill_name is:
-  mini-harness         → set status=end, block, instruct: /council
+  mini-harness         → set status=end, block, instruct: /interview run_id:xxx
+  interview            → set status=end, block, instruct: /council refined_goal interview:path run_id:xxx
   council              → set status=end, block, instruct: /mini-specify [adr:path]
   mini-specify         → set status=end, block, instruct: /taskify
   taskify              → set status=end, block, instruct: /dependency-resolve
@@ -261,6 +278,7 @@ Stop Hook #2's **compound guard** ensures learning promotion cannot be skipped:
 
 | File | Purpose | Lifecycle |
 |---|---|---|
+| `.dev/requirements/run-{RUN_ID}/interview.json` | Socratic interview results (written by interview) | Injected as council context |
 | `.dev/requirements/requirements.json` | Business requirements (written by mini-specify) | Read by taskify |
 | `.dev/task/spec.json` | Executable task breakdown (written by taskify, augmented by dependency-resolve) | Read/written by mini-execute |
 | `.dev/adr/YYYY-MM-DD-{slug}.md` | Architecture decision records (written by council) | Reference during requirement planning |
@@ -279,11 +297,17 @@ mini-pre-tool-use.sh → creates state.json {skill_name: "mini-harness", goal: "
   ↓
 [mini-harness executes — registers goal only]
   ↓
-mini-stop.sh case:mini-harness → BLOCK: "/council add-shopping-cart-feature"
+mini-stop.sh case:mini-harness → BLOCK: "/interview run_id:xxx"
+  ↓
+mini-pre-tool-use.sh → updates state.json {skill_name: "interview"}
+  ↓
+[interview: 3 rounds of AskUserQuestion → EnterPlanMode confirmation → writes interview.json]
+  ↓
+mini-stop.sh case:interview → BLOCK: "/council refined_goal interview:.dev/requirements/run-xxx/interview.json run_id:xxx"
   ↓
 mini-pre-tool-use.sh → updates state.json {skill_name: "council"}
   ↓
-[council spawns 4-panel debate → writes ADR to .dev/adr/2026-04-18-shopping-cart.md]
+[council loads interview.json → spawns product-owner + expert + devil's advocate → writes ADR]
   ↓
 mini-stop.sh case:council → BLOCK: "/mini-specify goal adr:.dev/adr/2026-04-18-shopping-cart.md"
   ↓
