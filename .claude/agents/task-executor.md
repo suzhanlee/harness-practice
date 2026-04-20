@@ -21,18 +21,20 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 
 ## 입력값
 
-- `run_id`: 하네스 run ID (`.dev/harness/runs/run-{id}/spec/spec.json` 위치 특정에 사용)
-- `task_id`: 구현할 태스크 ID
+- `run_id`: 하네스 run ID (ADR·컨텍스트 파일 접근 시 사용)
+- `task_id`: spec.json tasks 배열의 0-based 정수 인덱스
+- `task_spec`: mini-execute가 jq로 추출한 해당 태스크 JSON 블록 전체
 
 ## 실행 프로토콜
 
 ### Step 1: 명세 읽기
 
-1. `.dev/harness/runs/run-{run_id}/spec/spec.json` 읽기
-2. `task_id`에 해당하는 태스크 찾기
-3. 태스크 설명, actions, steps, 완료 기준, 의존성 추출
+1. `task_spec` 파라미터에서 태스크 정보를 직접 파싱한다 (spec.json 파일을 별도로 읽지 않음)
+2. `task_id`로 태스크를 식별한다
+3. `task_spec`에서 action, steps, verification, dependencies 추출
 4. 참조된 파일(기존 소스, 테스트 파일 등) 읽어 현재 상태 파악
 5. `CLAUDE.md`에서 프로젝트 컨벤션·제약 확인
+6. ADR 등 추가 컨텍스트가 필요하면 `.dev/harness/runs/run-{run_id}/adr/` 참조
 
 ### Step 2: 프로젝트 컨텍스트 파악
 
