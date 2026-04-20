@@ -21,17 +21,22 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 
 ## 입력값
 
-- `run_id`: 하네스 run ID (ADR·컨텍스트 파일 접근 시 사용)
-- `task_id`: spec.json tasks 배열의 0-based 정수 인덱스
-- `task_spec`: mini-execute가 jq로 추출한 해당 태스크 JSON 블록 전체
+- `run_id`: 하네스 run ID (spec.json 경로 특정 및 ADR·컨텍스트 파일 접근에 사용)
+- `task_id`: spec.json의 `task_id` 필드값 (예: `"task-2"`)
 
 ## 실행 프로토콜
 
 ### Step 1: 명세 읽기
 
-1. `task_spec` 파라미터에서 태스크 정보를 직접 파싱한다 (spec.json 파일을 별도로 읽지 않음)
-2. `task_id`로 태스크를 식별한다
-3. `task_spec`에서 action, steps, verification, dependencies 추출
+1. `run_id`로 spec.json 경로를 확인한다:
+   ```bash
+   SPEC_PATH=$(jq -r '.paths.spec' ".dev/harness/runs/run-${RUN_ID}/state/state.json")
+   ```
+2. `task_id`로 해당 태스크를 추출한다:
+   ```bash
+   TASK_JSON=$(jq --arg tid "${TASK_ID}" '.tasks[] | select(.task_id == $tid)' "$SPEC_PATH")
+   ```
+3. `TASK_JSON`에서 action, step, verification, dependencies 추출
 4. 참조된 파일(기존 소스, 테스트 파일 등) 읽어 현재 상태 파악
 5. `CLAUDE.md`에서 프로젝트 컨벤션·제약 확인
 6. ADR 등 추가 컨텍스트가 필요하면 `.dev/harness/runs/run-{run_id}/adr/` 참조
