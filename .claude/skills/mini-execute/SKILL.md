@@ -103,21 +103,23 @@ task-executor는 구현 완료 후 다음 JSON을 반환한다:
 }
 ```
 
-### 3-2. 결과 수집 및 spec.json 업데이트
+### 3-2. 결과 수집 및 validate-tasks 위임
 
-각 sub-agent 결과를 받으면 즉시 spec.json을 업데이트한다:
+task-executor 결과를 수집한 후 **validate-tasks 에이전트**를 호출해 검증 및 spec.json status 업데이트를 위임한다.
+spec.json status 변경 책임은 validate-tasks가 단독으로 소유한다.
 
-```bash
-# Done → "end"
-jq --argjson i TASK_INDEX '.tasks[$i].status = "end"' "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
+validate-tasks Agent 호출:
+- `subagent_type`: `validate-tasks`
+- prompt 형식:
+  ```
+  run_id: {RUN_ID}
+  ```
 
-# Failed → "not_start"
-jq --argjson i TASK_INDEX '.tasks[$i].status = "not_start"' "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
+validate-tasks는 `task.verification` 명령어를 실행한 exit code로만 "end"/"not_start"를 판단하고 spec.json을 업데이트한다.
+
+결과 출력 (task-executor 반환값 기준):
 ```
-
-결과 출력:
-```
-✓ Task{i}: {action} — Done
+✓ Task{i}: {action} — Done (검증은 validate-tasks가 수행)
   수정 파일: path/to/file.py
 ✗ Task{i}: {action} — Failed
   원인: {summary}
@@ -125,9 +127,9 @@ jq --argjson i TASK_INDEX '.tasks[$i].status = "not_start"' "$SPEC_PATH" > tmp &
 
 ### 3-3. TaskUpdate
 
-각 태스크 결과에 따라 TaskUpdate:
-- Done → `completed`
-- Failed → `cancelled`
+각 태스크에 대해 TaskUpdate (validate-tasks 완료 후):
+- validate-tasks가 "end"로 확정한 태스크 → `completed`
+- task-executor가 Failed를 반환한 태스크 → `cancelled`
 
 ### 3-4. 레벨 실패 처리
 
@@ -136,8 +138,6 @@ jq --argjson i TASK_INDEX '.tasks[$i].status = "not_start"' "$SPEC_PATH" > tmp &
 ```
 ⚠ Task{i} 실패 — Task{j}, Task{k}는 의존성 미충족으로 건너뜁니다.
 ```
-
-건너뛰어진 태스크의 spec.json status는 `"not_start"`로 유지한다.
 
 ---
 
@@ -180,7 +180,8 @@ rule을 명확히 서술할 수 없으면 기록하지 않는다.
 ## 핵심 제약
 
 - mini-execute는 **구현 코드를 직접 작성하지 않는다** — 모든 구현은 task-executor 위임
-- spec.json status 업데이트는 **mini-execute가 담당** (task-executor는 status 수정 금지)
+- spec.json status 변경 책임은 **validate-tasks 에이전트가 단독 소유** — mini-execute는 jq로 status를 직접 수정하지 않는다
+- mini-execute는 **TaskUpdate만** 사용한다 (Claude 태스크 이력 전용)
 - task_id는 tasks 배열의 **0-based 정수 인덱스**
 - spec.json이 없으면 즉시 중단. 빈 태스크로 구현하지 않는다.
 - session/learnings.json 조작 시 유효한 JSON을 유지한다.
