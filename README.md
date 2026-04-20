@@ -54,15 +54,17 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `intervie
       │   Analyzes step text for cross-references and layer ordering.
       │   Builds dependencies[] per task. Validates no circular deps.
       │   Assigns priority: P0 (no deps) → P1 (has deps) → P2 (terminal).
-      │   Rewrites spec.json with dependencies and priority fields.
+      │   TaskCreate per task → Claude task ID → writes task_id to spec.json.
+      │   Builds DAG via TaskUpdate(addBlockedBy).
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /mini-execute run_id:xxx"]
   /mini-execute  ◄──────────────────────────────────────────────┐
-      │   Topological sort. Implements tasks in order.            │
-      │   Runs verification command after each task.              │
-      │   Records friction → .mini-harness/session/learnings.json │
-      │                                                           │
-      ▼  [Stop Hook #1: execute-stop.sh — ralph loop]             │
+      │   Reads DAG from TaskList. Dispatches task-executor        │
+      │   sub-agents in parallel (blockedBy=[] tasks first).       │
+      │   validate-tasks agent owns spec.json status updates.      │
+      │   Records friction from agent summaries.                   │
+      │                                                            │
+      ▼  [Stop Hook #1: execute-stop.sh — ralph loop]              │
   validate-tasks agent                                            │
       │   Reruns verifications for all completed tasks.           │
       │   Reverts failed tasks to "not_start".                    │
@@ -115,10 +117,10 @@ Bridges the ADR to a task list. Optionally loads the ADR from the `adr:` paramet
 Converts requirements to an executable task spec. Auto-detects the tech stack (pytest.ini → Python, package.json → Node.js, etc.). Each task gets: an `action` (verb + object), `step` (3–5 imperative implementation steps), and `verification` (a runnable CLI command). Writes `.dev/task/spec.json`.
 
 ### `/dependency-resolve`
-Infers inter-task dependencies by analyzing step text for class/method cross-references and domain layer ordering (domain → application → infrastructure). Validates no circular dependencies via DFS. Assigns priority: P0 (no deps, run first), P1 (has deps), P2 (terminal). Rewrites `spec.json` in place.
+Infers inter-task dependencies by analyzing step text for class/method cross-references and domain layer ordering (domain → application → infrastructure). Validates no circular dependencies via DFS. Assigns priority: P0 (no deps, run first), P1 (has deps), P2 (terminal). Rewrites `spec.json` in place. TaskCreate 반환 Claude task ID를 즉시 spec.json의 `task_id`로 저장. TaskUpdate(addBlockedBy)로 의존성 DAG를 Claude task 시스템에 등록.
 
 ### `/mini-execute`
-Topologically sorts tasks by dependencies, then implements each one. After each task, runs its `verification` command. Pass (exit 0) → `status = "end"`. Fail → `status = "not_start"`. After all tasks are attempted, records friction to `session/learnings.json` only when a clear, actionable rule can be derived. The ralph loop then validates completed tasks and re-runs execute if any remain.
+task-executor 서브 에이전트에 구현을 위임. DAG의 `blockedBy`가 비어 있는 태스크들을 단일 메시지에 병렬 Agent 호출로 dispatch. validate-tasks가 spec.json status 업데이트를 담당. 마찰은 task-executor summary 기반으로 session/learnings.json에 기록.
 
 ### `/mini-compound`
 Promotes transient session learnings to permanent, searchable files. Reads `session/learnings.json`, converts each entry to a dated markdown file with frontmatter (`date`, `tags`) in `.mini-harness/learnings/`, then deletes the session file. Deletion unlocks `mini-stop.sh` to approve exit.
@@ -236,6 +238,9 @@ scripts/
 .claude/
   settings.json            # Hook configuration + env vars
   skills/                  # Skill definitions
+  agents/                  # Sub-agent definitions
+    task-executor.md       # Implements exactly one spec task, returns Done/Failed JSON
+    validate-tasks.md      # Re-verifies "end" tasks, reverts failures to "not_start"
 
 .mini-harness/
   learnings/               # Permanent learning library (*.md, tagged)

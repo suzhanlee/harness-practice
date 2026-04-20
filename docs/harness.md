@@ -89,12 +89,12 @@ No manual intervention needed between steps.
 - **Task Schema**: Each task has `index`, `action` (verb+object), `step` (3–5 implementation steps), `verification` (runnable CLI command), `status: "not_start"`
 - **Reference**: `.claude/skills/taskify/reference/` (formats.md, jq-commands.md, templates/)
 
-### 6. `/dependency-resolve` (Task Ordering)
+### 6. `/dependency-resolve` (Task Ordering + DAG Registration)
 
-**Infers and validates inter-task dependencies.**
+**Infers and validates inter-task dependencies, then registers the DAG into the Claude task system.**
 
 - **Input**: `.dev/task/spec.json`
-- **Output**: Same file, augmented with `dependencies: []` and `priority` fields
+- **Output**: Same file, augmented with `dependencies: []`, `priority`, and `task_id` fields
 - **Dependency Inference**: Parses step text for:
   - Class/method name cross-references
   - Domain-layer ordering (domain → application → infrastructure)
@@ -102,21 +102,25 @@ No manual intervention needed between steps.
   - Test dependency patterns
 - **Validation**: Rejects circular dependencies via DFS
 - **Priority Assignment**: P0 (no deps), P1 (has deps), P2 (chain terminal)
+- **DAG Registration**:
+  - TaskCreate per task → Claude task ID → immediately writes `task_id` to spec.json
+  - TaskUpdate(addBlockedBy) per task to register dependency edges into the Claude task DAG
+  - TaskList to confirm DAG structure before handing off
 
-### 7. `/mini-execute` (Implementation Loop + Ralph Loop)
+### 7. `/mini-execute` (Orchestration + Sub-agent Dispatch)
 
-**Implements all tasks in dependency order and records friction.**
+**스펙의 태스크를 task-executor 서브 에이전트에 위임하여 실행.**
 
-- **Input**: `.dev/task/spec.json` (must have `dependencies` field from prior `/dependency-resolve`)
-- **Output**: Updated spec with `status: "end"` for successful tasks; friction logged to `.mini-harness/session/learnings.json`
+- **Input**: `.dev/task/spec.json` (task_id + DAG가 dependency-resolve에 의해 이미 등록된 상태)
+- **Output**: validate-tasks가 spec.json status 업데이트; friction → `.mini-harness/session/learnings.json`
 - **Flow**:
-  1. Computes topological execution order
-  2. Sets `status = "processing"` for each task
-  3. Implements all `step` items
-  4. Runs `verification` command
-  5. Exit code 0 → `status = "end"` ✓
-  6. Exit code != 0 → `status = "not_start"`, continues
-  7. After each task, self-assesses friction: Was approach changed? Was workaround used? Appends entry to `session/learnings.json` if reusable rule found
+  1. TaskList로 DAG 현황 확인
+  2. `blockedBy=[]`인 태스크들을 단일 메시지에 병렬 Agent 호출 (task-executor)
+  3. 각 Agent: run_id + task_id 수신 → spec.json에서 jq로 태스크 읽기 → 구현 → Done/Failed 반환
+  4. task-executor 완료 후 validate-tasks Agent 호출 → spec.json status 업데이트
+  5. TaskUpdate(status=completed/deleted)
+  6. 새로 unblock된 태스크로 다음 라운드 반복
+  7. 마찰 기록: task-executor summary 기반, 명확한 rule만
 - **Ralph Loop** (Stop hook #1): After mini-execute exits:
   - Remaining incomplete tasks + `last_action = "execute"` → block, run `validate-tasks` agent, set `last_action = "validate"`
   - Remaining incomplete tasks + `last_action = "validate"` → block, re-run `/mini-execute`
@@ -196,6 +200,25 @@ state.json exists, skill_name is:
   mini-execute         → (delegate to execute-stop.sh ralph loop)
   mini-compound        → delete state.json, approve exit
 ```
+
+---
+
+## Sub-agents
+
+두 에이전트가 `.claude/agents/`에 정의돼 있으며 Claude Code가 자동 인식한다.
+
+### task-executor
+- **역할**: spec.json에서 정확히 하나의 태스크를 구현하고 검증 후 JSON 보고
+- **입력**: run_id, task_id (Claude task 시스템 ID)
+- **동작**: jq로 spec.json에서 해당 task 추출 → step 구현 → verification 실행
+- **반환**: `{"status": "Done"|"Failed", "summary": "...", "files_modified": [...]}`
+- **제약**: spec.json status 수정 금지 (mini-execute가 validate-tasks에 위임)
+
+### validate-tasks
+- **역할**: "end" 상태 태스크의 verification을 재실행, 실패 시 "not_start"로 복구
+- **입력**: run_id
+- **동작**: state.json → SPEC_PATH 해결 → status="end" 태스크 필터 → verification exit code로 판단
+- **제약**: status 변경 책임 단독 소유 (mini-execute는 spec.json status 직접 수정 금지)
 
 ---
 
@@ -338,13 +361,15 @@ mini-stop.sh case:taskify → BLOCK: "/dependency-resolve run_id:xxx"
   ↓
 mini-pre-tool-use.sh → updates run state {skill_name: "dependency-resolve"}
   ↓
-[dependency-resolve infers deps, assigns priority, rewrites spec.json]
+[dependency-resolve: infers deps, assigns priority, TaskCreate per task →
+   task_id=Claude ID → spec.json, TaskUpdate(addBlockedBy) DAG]
   ↓
 mini-stop.sh case:dependency-resolve → BLOCK: "/mini-execute run_id:xxx"
   ↓
 mini-pre-tool-use.sh → updates run state {skill_name: "mini-execute", last_action: "execute"}
   ↓
-[mini-execute implements tasks in topo order, records friction]
+[mini-execute: TaskList → parallel task-executor agents (DAG order) →
+   validate-tasks agent → TaskUpdate per task → repeat until all end]
   ↓
 execute-stop.sh (Stop Hook #1) ralph loop:
   ├─ remaining tasks + last_action=execute
