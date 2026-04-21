@@ -4,8 +4,8 @@ description: |
   Use when the user says "/mini-execute".
   Reads $SPEC_PATH (tasks already have task_id from dependency-resolve),
   shows TaskList to confirm DAG, then delegates each task to the task-executor
-  sub-agent in dependency order. Manages parallel dispatch and hands
-  spec.json status updates to validate-tasks.
+  sub-agent in dependency order. Manages parallel dispatch and Claude task
+  system updates. validate-tasks is triggered by stop.sh hook, not called directly.
 allowed-tools:
   - Bash
   - Agent
@@ -95,27 +95,24 @@ task-executor 반환 JSON:
 }
 ```
 
-### 3-2. validate-tasks 위임
+### 3-2. TaskUpdate — 결과 반영
 
-task-executor 완료 후 validate-tasks 에이전트를 호출해 spec.json status 업데이트를 위임한다.
-spec.json status 변경 책임은 **validate-tasks가 단독 소유**한다.
+task-executor 반환 후 spec.json에서 해당 태스크 status를 확인해 Claude task 시스템에 반영한다:
 
-```
-subagent_type: validate-tasks
-prompt:
-  run_id: {RUN_ID}
+```bash
+FINAL_STATUS=$(jq -r --arg tid "${TASK_ID}" '.tasks[] | select(.task_id == $tid) | .status' "$SPEC_PATH")
 ```
 
-### 3-3. TaskUpdate — 결과 반영
-
-validate-tasks 완료 후 `task_id`(= Claude task 시스템 ID)로 TaskUpdate 호출:
-- "end"로 확정된 태스크 → `TaskUpdate(taskId={TASK_ID}, status="completed")`
-- Failed 태스크 → `TaskUpdate(taskId={TASK_ID}, status="deleted")`
+- `"end"` → `TaskUpdate(taskId={TASK_ID}, status="completed")`
+- `"not_start"` (task-executor 실패) → `TaskUpdate(taskId={TASK_ID}, status="deleted")`
 
 실패 태스크가 있으면 의존 태스크를 건너뜀:
 ```
 ⚠ {TASK_ID} 실패 — {TASK_ID_J}, {TASK_ID_K}는 의존성 미충족으로 건너뜁니다.
 ```
+
+> validate-tasks는 mini-execute가 직접 호출하지 않는다.
+> stop.sh가 mini-execute 종료 시 자동으로 발동해 "end" 태스크를 재검증한다.
 
 ---
 
@@ -158,7 +155,9 @@ rule을 명확히 서술할 수 없으면 기록하지 않는다.
 ## 핵심 제약
 
 - mini-execute는 **구현 코드를 직접 작성하지 않는다** — 모든 구현은 task-executor 위임
-- spec.json status 변경 책임은 **validate-tasks 에이전트가 단독 소유**
+- spec.json `status="end"` 진입은 **task-executor가 검증 통과 후 직접 설정**
+- spec.json `status="not_start"` 복구는 **stop.sh → validate-tasks**가 담당 (mini-execute 종료 후 자동 발동)
+- mini-execute는 **validate-tasks를 직접 호출하지 않는다**
 - mini-execute는 **TaskUpdate / TaskList만** 사용 (TaskCreate, jq status 직접 수정 금지)
 - task_id가 없는 spec.json은 처리하지 않는다 (dependency-resolve 선행 필수)
 - spec.json이 없으면 즉시 중단. 빈 태스크로 구현하지 않는다.

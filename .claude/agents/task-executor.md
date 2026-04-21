@@ -15,7 +15,6 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 
 **절대 하지 않을 것:**
 - 두 개 이상의 태스크 구현
-- spec/run 파일의 status 필드 수정
 - 기술적 블로킹 없이 명세된 단계 이탈
 - 할당 범위 밖의 아키텍처 변경
 
@@ -66,9 +65,20 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 4. 새로 작성한 테스트가 통과하는지 확인
 5. 내 변경으로 기존 통과 테스트가 깨지지 않았는지 확인
 
-### Step 5: 결과 보고
+### Step 5: spec.json status 업데이트 후 결과 보고
 
-검증 완료 후 호출 에이전트에게 **이 JSON만** 반환:
+검증 통과(exit 0) 시 spec.json의 해당 태스크 status를 `"end"`로 설정한다:
+
+```bash
+SPEC_PATH=$(jq -r '.paths.spec' ".dev/harness/runs/run-${RUN_ID}/state/state.json")
+jq --arg tid "${TASK_ID}" '
+  .tasks |= map(if .task_id == $tid then .status = "end" else . end)
+' "$SPEC_PATH" > /tmp/spec_tmp.json && mv /tmp/spec_tmp.json "$SPEC_PATH"
+```
+
+검증 실패 시 spec.json status를 변경하지 않는다 (not_start 유지 — validate-tasks가 복구 역할).
+
+그 후 호출 에이전트에게 **이 JSON만** 반환:
 
 ```json
 {
@@ -111,5 +121,5 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 - [ ] 모든 신규 코드가 프로젝트 네이밍·레이어 컨벤션을 따르는가
 - [ ] 관련 테스트가 통과하는가 (`pytest` exit 0)
 - [ ] 기존 통과 테스트가 깨지지 않았는가 (known discrepancy 제외)
-- [ ] spec.json 또는 run 메타데이터의 status 필드를 수정하지 않았는가
+- [ ] 검증 통과 시 spec.json 해당 태스크 status를 "end"로 업데이트했는가
 - [ ] summary가 실제 구현 내용을 정확히 반영하는가
