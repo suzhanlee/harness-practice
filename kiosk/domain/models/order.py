@@ -6,6 +6,7 @@ from enum import Enum
 from typing import List, Optional
 from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId
 from .discount import Discount
+from kiosk.domain.events.base import DomainEvent
 
 
 class OrderStatus(Enum):
@@ -53,6 +54,7 @@ class Order:
     user_id: Optional[UserId] = None
     _discounts: List[Discount] = field(default_factory=list, init=False)
     history: List[OrderStateSnapshot] = field(default_factory=list, init=False)
+    _pending_events: List[DomainEvent] = field(default_factory=list, init=False, repr=False)
 
     @classmethod
     def create(cls) -> Order:
@@ -97,6 +99,11 @@ class Order:
             raise ValueError(f"항목을 찾을 수 없습니다: {menu_item_id}")
         item.set_quantity(new_quantity)
 
+    def pull_domain_events(self) -> List[DomainEvent]:
+        events = list(self._pending_events)
+        self._pending_events.clear()
+        return events
+
     def confirm(self):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태의 주문만 확인할 수 있습니다.")
@@ -106,6 +113,14 @@ class Order:
             raise ValueError("품절된 메뉴가 포함되어 있습니다.")
         self.status = OrderStatus.CONFIRMED
         self._record_history()
+        from kiosk.domain.events.order_events import OrderConfirmed
+        items_snapshot = [(item.name, item.quantity, item.unit_price) for item in self.items]
+        event = OrderConfirmed.from_order(
+            order_id=self.id,
+            items=items_snapshot,
+            total_amount=self.total_amount,
+        )
+        self._pending_events.append(event)
 
     def mark_paid(self):
         if self.status != OrderStatus.CONFIRMED:
