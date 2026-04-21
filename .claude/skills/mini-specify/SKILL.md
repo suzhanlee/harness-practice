@@ -97,6 +97,7 @@ Past learning을 고려하여 태스크 목록을 작성한다.
 
 - 관련 rule이 있으면 해당 태스크에 `(⚠️ past rule 반영)` 주석 추가
 - 태스크는 단일 구현 단위로 분리 (하나의 태스크 = 하나의 실행 가능한 작업)
+- 적절한 task 크기 기준은 `reference/task-sizing.md`의 few-shot을 참조한다
 
 **출력 형식:**
 ```
@@ -138,7 +139,7 @@ Write 완료 후 출력:
 
 ## Rules
 
-- 태스크는 3개 이하로 유지한다 (최소 단위 원칙).
+- 태스크 수에 상한은 없다. 적절한 크기 기준은 `reference/task-sizing.md`를 따른다.
 - goal이 이미 단일 작업이면 태스크 1개로 출력한다.
 - Past learning이 없으면 `⚠️` 블록 없이 바로 태스크 목록만 출력한다.
 - Step 5에서 생성하는 requirements.json은 taskify가 읽을 수 있도록 반드시 유효한 JSON이어야 한다.
