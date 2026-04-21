@@ -19,7 +19,7 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `intervie
 ```
 /mini-harness [goal]
       │
-      ▼  [PreToolUse: mini-pre-tool-use.sh → creates run-{run_id}.json + session pointer]
+      ▼  [PreToolUse: mini-pre-tool-use.sh → creates state.json + session pointer under run-{run_id}/]
   mini-harness skill
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /interview run_id:xxx"]
@@ -27,7 +27,7 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `intervie
       │   Socratic questioning: 3 rounds × 2 questions = 6 total.
       │   Round 1: current state. Round 2: desired change. Round 3: boundaries.
       │   Synthesizes refined_goal. AskUserQuestion for user confirmation.
-      │   Writes .dev/requirements/run-{RUN_ID}/interview.json
+      │   Writes .dev/harness/runs/run-{run_id}/interview/interview.json
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /council refined_goal interview:<path>"]
    /council
@@ -35,19 +35,19 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `intervie
       │   Mandatory panelists: product-owner + domain expert + devil's advocate.
       │   Mandatory lens: 사용자 가치 / 요구사항 충족도.
       │   Phase 1: structured opinions. Phase 2: direct rebuttals.
-      │   Writes ADR to .dev/adr/YYYY-MM-DD-{slug}.md
+      │   Writes ADR to .dev/harness/runs/run-{run_id}/adr/YYYY-MM-DD-{slug}.md
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /mini-specify adr:<path>"]
   /mini-specify
       │   Loads ADR. Searches .mini-harness/learnings/ by tag/keyword.
       │   Surfaces past friction rules.
-      │   Writes .dev/requirements/run-{RUN_ID}/requirements.json
+      │   Writes .dev/harness/runs/run-{run_id}/requirement/requirements.json
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /taskify run_id:xxx"]
    /taskify
       │   Reads requirements.json. Auto-detects tech stack.
       │   Breaks each requirement into tasks: action + steps + verification command.
-      │   Writes .dev/task/run-{RUN_ID}/spec.json
+      │   Writes .dev/harness/runs/run-{run_id}/spec/spec.json
       │
       ▼  [Stop: mini-stop.sh → BLOCK → "run /dependency-resolve run_id:xxx"]
   /dependency-resolve
@@ -89,7 +89,7 @@ The entry point is `/mini-harness [goal]`. From there, the chain runs: `intervie
 
 | Hook | Script | Role |
 |---|---|---|
-| PreToolUse (Skill) | `mini-pre-tool-use.sh` | Creates `run-{run_id}.json` + session pointer on first call; updates `skill_name` on subsequent calls |
+| PreToolUse (Skill) | `mini-pre-tool-use.sh` | Creates `run-{run_id}/state/state.json` + session pointer on first call; updates `skill_name` on subsequent calls |
 | PostToolUse (Skill) | `mini-post-tool-use.sh` | Keeps `status = "processing"` on `mini-harness` to prevent premature exit |
 | Stop #1 | `execute-stop.sh` | Ralph loop controller: alternates `execute ↔ validate` until all tasks pass |
 | Stop #2 | `mini-stop.sh` | **Main orchestrator**: reads run state, decides next skill, blocks or approves exit |
@@ -102,19 +102,19 @@ Hook configuration lives in `.claude/settings.json`. Two Stop hooks fire sequent
 ## Skills
 
 ### `/mini-harness [goal]`
-Entry point. Accepts a goal string. The `mini-pre-tool-use.sh` hook generates a `run_id`, creates `.dev/harness/runs/run-{run_id}.json` with the goal and run-scoped paths, and registers a session pointer at `.dev/harness/sessions/{session_id}.run_id`. The skill itself does minimal work — its purpose is to be the first hook trigger. `mini-stop.sh` then blocks exit and instructs Claude to run `/interview`.
+Entry point. Accepts a goal string. The `mini-pre-tool-use.sh` hook generates a `run_id`, creates `.dev/harness/runs/run-{run_id}/state/state.json` with the goal and run-scoped paths, and registers a session pointer at `.dev/harness/runs/run-{run_id}/sessions/{session_id}.run_id`. The skill itself does minimal work — its purpose is to be the first hook trigger. `mini-stop.sh` then blocks exit and instructs Claude to run `/interview`.
 
 ### `/interview`
-Socratic requirements interview. Asks 6 structured questions across 3 rounds (current state → desired change → boundaries), synthesizes answers into a `refined_goal`, and writes `.dev/requirements/run-{RUN_ID}/interview.json`. Uses `EnterPlanMode` to confirm the synthesized requirements before saving. The refined goal and constraints are then passed to `/council` as context.
+Socratic requirements interview. Asks 6 structured questions across 3 rounds (current state → desired change → boundaries), synthesizes answers into a `refined_goal`, and writes `interview/interview.json` under the run directory. Uses `EnterPlanMode` to confirm the synthesized requirements before saving. The refined goal and constraints are then passed to `/council` as context.
 
 ### `/council`
-Structured architectural debate that produces an ADR. Loads `interview.json` when available (passed via `interview:` arg from `mini-stop.sh`), using `refined_goal` as the debate topic. Always includes a **product-owner** panelist and a **사용자 가치 / 요구사항 충족도** lens. Derives 3–5 analysis lenses from the topic, spawns panelists in parallel via `TeamCreate` (including a devil's advocate), runs a two-phase debate (initial positions → direct rebuttals), and writes the final ADR to `.dev/adr/`. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in env.
+Structured architectural debate that produces an ADR. Loads `interview.json` when available (passed via `interview:` arg from `mini-stop.sh`), using `refined_goal` as the debate topic. Always includes a **product-owner** panelist and a **사용자 가치 / 요구사항 충족도** lens. Derives 3–5 analysis lenses from the topic, spawns panelists in parallel via `TeamCreate` (including a devil's advocate), runs a two-phase debate (initial positions → direct rebuttals), and writes the final ADR to `adr/YYYY-MM-DD-{slug}.md` under the run directory. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in env.
 
 ### `/mini-specify [goal] [adr:<path>]`
-Bridges the ADR to a task list. Optionally loads the ADR from the `adr:` parameter (passed automatically by `mini-stop.sh`). Searches `.mini-harness/learnings/*.md` by tag/keyword match and surfaces relevant past rules before planning begins. Writes `.dev/requirements/requirements.json`.
+Bridges the ADR to a task list. Optionally loads the ADR from the `adr:` parameter (passed automatically by `mini-stop.sh`). Searches `.mini-harness/learnings/*.md` by tag/keyword match and surfaces relevant past rules before planning begins. Writes `requirement/requirements.json` under the run directory.
 
 ### `/taskify`
-Converts requirements to an executable task spec. Auto-detects the tech stack (pytest.ini → Python, package.json → Node.js, etc.). Each task gets: an `action` (verb + object), `step` (3–5 imperative implementation steps), and `verification` (a runnable CLI command). Writes `.dev/task/spec.json`.
+Converts requirements to an executable task spec. Auto-detects the tech stack (pytest.ini → Python, package.json → Node.js, etc.). Each task gets: an `action` (verb + object), `step` (3–5 imperative implementation steps), and `verification` (a runnable CLI command). Writes `spec/spec.json` under the run directory.
 
 ### `/dependency-resolve`
 Infers inter-task dependencies by analyzing step text for class/method cross-references and domain layer ordering (domain → application → infrastructure). Validates no circular dependencies via DFS. Assigns priority: P0 (no deps, run first), P1 (has deps), P2 (terminal). Rewrites `spec.json` in place. TaskCreate 반환 Claude task ID를 즉시 spec.json의 `task_id`로 저장. TaskUpdate(addBlockedBy)로 의존성 DAG를 Claude task 시스템에 등록.
@@ -186,30 +186,114 @@ Quality gate: `mini-execute` only records entries where a clear, reusable rule c
 
 ---
 
-## State Machine (run state files)
+## Run Artifacts
 
-**Location**: `.dev/harness/runs/run-{run_id}.json` — one file per active run; deleted when the chain completes.
+Every run of the harness produces a self-contained directory under `.dev/harness/runs/run-{run_id}/` with five artifact kinds, each written by a specific skill and read by the next one in the chain. The whole directory is the single source of truth for the run — no artifact is written outside of it.
 
-**Session pointer**: `.dev/harness/sessions/{session_id}.run_id` — maps the current Claude session to a run_id. Recreated automatically after compact via `mini-start-session.sh`.
+```
+.dev/harness/runs/run-{run_id}/
+  state/state.json              ← mini-pre-tool-use.sh  (live, mutable)
+  interview/interview.json      ← /interview
+  adr/YYYY-MM-DD-{slug}.md      ← /council
+  requirement/requirements.json ← /mini-specify
+  spec/spec.json                ← /taskify  (mutated by /dependency-resolve, /mini-execute, validate-tasks)
+  sessions/{session_id}.run_id  ← session→run pointer (empty file, name is the mapping)
+```
+
+### `state/state.json` — live run state
+
+Created by `mini-pre-tool-use.sh` on the first `/mini-harness` call, mutated throughout the run, deleted by `mini-stop.sh` when `mini-compound` completes.
 
 ```json
 {
-  "run_id": "20260419-153042-a3f1",
+  "run_id": "20260419-074829-890e",
   "skill_name": "mini-harness | interview | council | mini-specify | taskify | dependency-resolve | mini-execute | mini-compound",
   "status": "processing | end",
   "goal": "<original goal string>",
   "timestamp": "<ISO-8601 UTC>",
   "paths": {
-    "requirements": ".dev/requirements/run-{run_id}/requirements.json",
-    "spec": ".dev/task/run-{run_id}/spec.json"
+    "run_dir":      ".dev/harness/runs/run-{run_id}",
+    "state":        ".dev/harness/runs/run-{run_id}/state/state.json",
+    "interview":    ".dev/harness/runs/run-{run_id}/interview/interview.json",
+    "requirements": ".dev/harness/runs/run-{run_id}/requirement/requirements.json",
+    "spec":         ".dev/harness/runs/run-{run_id}/spec/spec.json",
+    "adr_dir":      ".dev/harness/runs/run-{run_id}/adr",
+    "sessions_dir": ".dev/harness/runs/run-{run_id}/sessions"
   },
   "last_action": "execute | validate"
 }
 ```
 
-`last_action` is only present when `skill_name = "mini-execute"` (ralph loop state). `paths` stores run-scoped file locations so all hooks and skills reference the same files regardless of legacy fallbacks.
+`paths` is the authoritative map that every hook and skill uses to locate artifacts — skills must not reconstruct paths from `run_id`. `last_action` is only present during `/mini-execute` (ralph loop toggle). `skill_name` is advanced before each skill; `status` flips to `"end"` during transitions by `mini-stop.sh`.
 
-**Lifecycle**: Created by `mini-pre-tool-use.sh` on the first `/mini-harness` call. `skill_name` is updated before each subsequent skill. `status` is set to `"end"` by `mini-stop.sh` when transitioning. Run state file + session pointer are deleted by `mini-stop.sh` when `mini-compound` completes.
+### `interview/interview.json` — Socratic output
+
+Written by `/interview`. Input to `/council`.
+
+```json
+{
+  "run_id": "20260419-074829-890e",
+  "original_goal": "<user's raw goal>",
+  "refined_goal":  "<synthesized goal after 6 questions>",
+  "problem":       "<problem statement>",
+  "users":            ["<persona>", ...],
+  "success_criteria": ["<measurable outcome>", ...],
+  "out_of_scope":     ["<explicitly excluded>", ...],
+  "constraints":      ["<hard constraint>", ...]
+}
+```
+
+`refined_goal` becomes the debate topic for `/council`; `constraints` + `out_of_scope` seed the devil's-advocate lens.
+
+### `adr/YYYY-MM-DD-{slug}.md` — council decision
+
+Written by `/council` as Markdown (not JSON — ADRs are prose). Standard ADR sections: **Context**, **Options considered** (one per panelist), **Rebuttals**, **Decision**, **Consequences**. The slug is derived from `refined_goal`. One ADR per run; `/mini-specify` loads it via the `adr:` arg from `mini-stop.sh`.
+
+### `requirement/requirements.json` — planning output
+
+Written by `/mini-specify`. Input to `/taskify`. Each requirement is a single bounded deliverable that maps to 1–N tasks downstream.
+
+```json
+{
+  "run_id": "20260419-074829-890e",
+  "goal":   "<refined_goal, copied from interview>",
+  "requirements": [
+    { "index": 1, "content": "<what must be built, in one sentence>" },
+    { "index": 2, "content": "..." }
+  ]
+}
+```
+
+### `spec/spec.json` — executable task DAG
+
+The most heavily mutated artifact. Written by `/taskify`, enriched by `/dependency-resolve` (adds `task_id`, `dependencies`, `priority`), and mutated by `validate-tasks` (flips `status`).
+
+```json
+{
+  "run_id": "20260419-074829-890e",
+  "goal":   "<refined_goal>",
+  "tasks": [
+    {
+      "task_id":      "<Claude task ID assigned by TaskCreate>",
+      "action":       "<verb + object, one line>",
+      "step":         ["<imperative step 1>", "<step 2>", "..."],
+      "verification": "<runnable CLI command, e.g. pytest tests/x.py::test_y -v>",
+      "status":       "not_start | in_progress | end",
+      "dependencies": [0, 1],
+      "priority":     "P0 | P1 | P2"
+    }
+  ]
+}
+```
+
+- `dependencies` are **indices into the `tasks` array** (not task_ids). `/dependency-resolve` infers them from step text, then calls `TaskUpdate(addBlockedBy)` to mirror the DAG into Claude's task system.
+- `priority`: P0 = no deps (run first), P1 = has deps, P2 = terminal (depended upon by nothing else).
+- `status` is the single source of truth for ralph-loop termination — `execute-stop.sh` exits when every task has `status: "end"`.
+- `verification` must be a single shell command returning non-zero on failure; `validate-tasks` runs it verbatim.
+
+### `sessions/{session_id}.run_id` — session pointer
+
+An empty marker file whose filename maps the current Claude session to this run. Recreated automatically after compact by `mini-start-session.sh`, so a mid-run compact can reattach the new session_id without losing state. Deleted alongside the run directory on completion.
 
 ---
 
@@ -248,13 +332,14 @@ scripts/
 
 .dev/
   harness/
-    runs/                  # run-{run_id}.json — one per active run, deleted on completion
-    sessions/              # {session_id}.run_id — session→run_id pointers
-  adr/                     # Architecture Decision Records (output of /council)
-  requirements/
-    run-{RUN_ID}/          # interview.json (output of /interview) + requirements.json (output of /mini-specify)
-  task/
-    run-{RUN_ID}/          # spec.json (output of /taskify + /dependency-resolve)
+    runs/
+      run-{run_id}/        # one directory per active run, deleted on completion
+        state/state.json              # live run state (mini-pre-tool-use.sh)
+        interview/interview.json      # /interview output
+        adr/YYYY-MM-DD-{slug}.md      # /council output
+        requirement/requirements.json # /mini-specify output
+        spec/spec.json                # /taskify → /dependency-resolve → /mini-execute
+        sessions/{session_id}.run_id  # session→run pointer (empty marker)
 
 kiosk/                     # Mini-project sandbox — test vehicle for the harness
   domain/                  # DDD domain models (entities, value objects, repositories)
