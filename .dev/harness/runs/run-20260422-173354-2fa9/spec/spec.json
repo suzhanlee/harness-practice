@@ -189,13 +189,14 @@
         "stacking cap 테스트 — 할인 합계 > 주문 총액이면 0원 고정",
         "게스트 주문(VipGradeDiscountRule/PointRedemptionRule 미적용, CouponDiscountRule만 적용) 분기 테스트"
       ],
-      "status": "not_start",
-      "pipeline_stage": "not_started",
+      "status": "end",
+      "pipeline_stage": "implementing",
       "dependencies": [
         5,
         6
       ],
-      "priority": "P1"
+      "priority": "P1",
+      "branch": "feat/task-11-discount-pipeline-integration-test"
     },
     {
       "task_id": "12",
