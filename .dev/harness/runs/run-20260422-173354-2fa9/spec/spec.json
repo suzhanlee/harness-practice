@@ -151,15 +151,16 @@
         "Receipt/ReceiptDTO에 discount_breakdown: list[dict] 필드 추가 — 적용된 규칙별 rule_name/discount_amount 포함",
         "기존 ProcessPaymentUseCase 테스트가 member_id=None으로 호환되는지 확인"
       ],
-      "status": "not_start",
-      "pipeline_stage": "not_started",
+      "status": "end",
+      "pipeline_stage": "implementing",
       "dependencies": [
         0,
         3,
         4,
         6
       ],
-      "priority": "P1"
+      "priority": "P1",
+      "branch": "feat/task-9-process-payment-membership"
     },
     {
       "task_id": "10",
@@ -208,14 +209,15 @@
         "포인트 이중 사용 시나리오 — 잔액보다 많은 포인트 차감 시 InsufficientPointBalanceError 발생 확인",
         "비회원 결제 — member_id=None 시 포인트 적립/VIP 할인 없이 정상 완료 확인"
       ],
-      "status": "not_start",
-      "pipeline_stage": "not_started",
+      "status": "end",
+      "pipeline_stage": "implementing",
       "dependencies": [
         7,
         8,
         9
       ],
-      "priority": "P2"
+      "priority": "P2",
+      "branch": "feat/task-12-e2e-membership-flow"
     },
     {
       "task_id": "13",
@@ -227,7 +229,7 @@
         "ProcessPaymentUseCase 생성자에 member_repo, dispatcher 인자 추가",
         "전체 테스트 스위트(pytest tests/) 실행하여 기존 테스트 무회귀 확인"
       ],
-      "status": "not_start",
+      "status": "end",
       "pipeline_stage": "not_started",
       "dependencies": [
         4,
