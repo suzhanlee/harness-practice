@@ -2,6 +2,8 @@ from __future__ import annotations
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
+from typing import ClassVar
 from uuid import UUID, uuid4
 from datetime import datetime
 
@@ -184,6 +186,53 @@ class SplitPaymentId:
         return cls(UUID(value))
 
 
+@dataclass(frozen=True)
+class MemberId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> MemberId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> MemberId:
+        return cls(UUID(value))
+
+
+@dataclass(frozen=True)
+class PointAccountId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> PointAccountId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> PointAccountId:
+        return cls(UUID(value))
+
+
+class MemberGrade(Enum):
+    NORMAL = "NORMAL"
+    SILVER = "SILVER"
+    GOLD = "GOLD"
+    VIP = "VIP"
+
+    @classmethod
+    def earn_rate(cls, grade: MemberGrade) -> Decimal:
+        rates = {
+            cls.NORMAL: Decimal("1"),
+            cls.SILVER: Decimal("2"),
+            cls.GOLD: Decimal("3"),
+            cls.VIP: Decimal("5"),
+        }
+        return rates[grade]
+
+
+class InsufficientPointBalanceError(ValueError):
+    """Raised when attempting to redeem more points than available balance."""
+
+
 class _DiscountRuleMeta(ABCMeta):
     """Metaclass combining ABCMeta with frozen dataclass support."""
 
@@ -191,6 +240,8 @@ class _DiscountRuleMeta(ABCMeta):
 @dataclass(frozen=True)
 class AbstractDiscountRule(metaclass=_DiscountRuleMeta):
     """Abstract base for all discount rules. Subclasses must implement calculate()."""
+
+    priority: ClassVar[int] = 999
 
     @abstractmethod
     def calculate(self, original: Money) -> Money:
