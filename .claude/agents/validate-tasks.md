@@ -40,16 +40,24 @@ fi
 `status == "end"`인 각 태스크에 대해:
 1. `task.verification` 명령을 Bash로 실행
 2. exit code 캡처
-3. `0` → 태스크 유지 ("end")
-4. `!= 0` → `"not_start"`로 되돌릴 태스크로 표시
+3. `0` → 태스크 유지 (`status="end"`, `pipeline_stage="validated"`)
+4. `!= 0` → `status="not_start"` + `pipeline_stage="failed"`로 되돌릴 태스크로 표시
 
-### Step 4: 실패한 태스크의 spec.json 업데이트
+### Step 4: spec.json 업데이트 — 통과/실패 반영
 
-실패한 각 태스크에 대해 jq로 status 업데이트:
+**통과한 태스크** — `pipeline_stage="validated"`로 전이:
 ```bash
-jq --argjson i INDEX '.tasks[$i].status = "not_start"' "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
+jq --argjson i INDEX '.tasks[$i].pipeline_stage = "validated"' "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
+```
+
+**실패한 태스크** — `status` 복구 + `pipeline_stage="failed"`:
+```bash
+jq --argjson i INDEX '.tasks[$i].status = "not_start" | .tasks[$i].pipeline_stage = "failed"' \
+  "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
 ```
 각 업데이트 후 JSON이 유효한지 확인.
+
+> `pipeline_stage` 전이는 Stop hook의 상태 스캐너가 의존하는 신호다. 반드시 설정한다 — 누락 시 `gh-pr-open` 단계로 진행되지 않는다.
 
 ### Step 5: 결과 보고
 
