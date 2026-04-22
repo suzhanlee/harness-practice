@@ -1,45 +1,58 @@
-from kiosk.domain.models.value_objects import CouponCode, OrderId
-from kiosk.domain.repositories.discount_repository import DiscountRepository
-from kiosk.domain.repositories.order_repository import OrderRepository
+from __future__ import annotations
+
 from dataclasses import dataclass
+from datetime import datetime
 
-
-@dataclass
-class ApplyCouponDTO:
-    order_id: str
-    coupon_code: str
-    total_before: str
-    total_after: str
-    discount_amount: str
+from kiosk.domain.models.coupon import (
+    Coupon,
+    CouponAlreadyUsedError,
+    CouponExpiredError,
+    CouponUsageLimitExceededError,
+)
+from kiosk.domain.models.value_objects import OrderId
+from kiosk.domain.repositories.coupon_repository import CouponRepository
+from kiosk.application.use_cases.issue_coupon import CouponDTO
 
 
 class ApplyCouponUseCase:
-    def __init__(self, order_repo: OrderRepository, discount_repo: DiscountRepository):
-        self.order_repo = order_repo
-        self.discount_repo = discount_repo
+    """쿠폰 코드를 주문에 적용(사용 처리)합니다."""
 
-    def execute(self, order_id: str, coupon_code: str) -> ApplyCouponDTO:
-        order = self.order_repo.find_by_id(OrderId.from_str(order_id))
-        if not order:
-            raise ValueError(f"주문을 찾을 수 없습니다: {order_id}")
+    def __init__(self, coupon_repo: CouponRepository) -> None:
+        self.coupon_repo = coupon_repo
 
-        discount = self.discount_repo.find_by_code(CouponCode(coupon_code))
-        if not discount:
-            raise ValueError(f"유효한 쿠폰이 아닙니다: {coupon_code}")
+    def execute(self, order_id: str, coupon_code: str, now: str) -> CouponDTO:
+        """
+        Parameters
+        ----------
+        order_id    : 주문 UUID 문자열
+        coupon_code : 쿠폰 코드 문자열
+        now         : 현재 시각 ISO 8601 문자열
 
-        if not discount.validate_coupon():
-            raise ValueError(f"사용 불가능한 쿠폰입니다: {coupon_code}")
+        Raises
+        ------
+        ValueError                    : 쿠폰을 찾을 수 없을 때
+        CouponExpiredError             : 만료된 쿠폰 사용 시도
+        CouponUsageLimitExceededError  : 사용 횟수 초과 시
+        CouponAlreadyUsedError         : 같은 주문에 이미 사용된 쿠폰
+        """
+        coupon: Coupon | None = self.coupon_repo.find_by_code(coupon_code)
+        if coupon is None:
+            raise ValueError(f"쿠폰을 찾을 수 없습니다: {coupon_code}")
 
-        total_before = order.total_amount.amount
-        order.apply_discount(discount)
-        self.order_repo.save(order)
-        total_after = order.get_total_after_discounts().amount
-        discount_amount = total_before - total_after
+        order_id_vo = OrderId.from_str(order_id)
+        now_dt = datetime.fromisoformat(now)
 
-        return ApplyCouponDTO(
-            order_id=order_id,
-            coupon_code=coupon_code,
-            total_before=str(total_before),
-            total_after=str(total_after),
-            discount_amount=str(discount_amount)
+        # domain exception 전파 (CouponExpiredError, CouponUsageLimitExceededError, CouponAlreadyUsedError)
+        coupon.redeem(order_id_vo, now_dt)
+
+        # 버그 수정: coupon 상태 저장 (기존 코드에 누락되어 있었음)
+        self.coupon_repo.save(coupon)
+
+        return CouponDTO(
+            coupon_id=str(coupon.id.value),
+            code=coupon.code.value,
+            discount_type=coupon.discount_type,
+            discount_value=coupon.discount_value,
+            max_usage=coupon.max_usage,
+            expires_at=coupon.expires_at.isoformat(),
         )

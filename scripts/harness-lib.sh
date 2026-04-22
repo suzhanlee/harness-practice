@@ -17,6 +17,21 @@ resolve_run_state() {
   echo ""
 }
 
+# normalize_cwd PATH
+# → Windows 백슬래시 경로(C:\Users\...)를 Git Bash 경로(/c/Users/...)로 변환
+# → 이미 Unix 경로면 그대로 반환
+normalize_cwd() {
+  local p="$1"
+  if [[ "${p:1:1}" == ":" ]]; then
+    local drive="${p:0:1}"
+    local rest="${p:2}"
+    rest="${rest//\\/\/}"
+    echo "/${drive,,}${rest}"
+  else
+    echo "$p"
+  fi
+}
+
 # generate_run_id
 # → yyyymmdd-HHMMSS-{4hex} 형식의 run_id를 stdout에 출력 (Windows 호환)
 generate_run_id() {

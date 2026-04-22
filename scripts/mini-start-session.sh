@@ -3,9 +3,18 @@
 # Detects interrupted work and reconnects to the correct run after compact
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+_RAW_CWD=$(echo "$INPUT" | jq -r '.cwd')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 IS_COMPACT=$(echo "$INPUT" | jq -r '.is_compact // false')
+
+# harness-lib.sh source 전에 normalize_cwd 인라인 처리
+if [[ "${_RAW_CWD:1:1}" == ":" ]]; then
+  _drive="${_RAW_CWD:0:1}"; _rest="${_RAW_CWD:2}"; _rest="${_rest//\\/\/}"
+  CWD="/${_drive,,}${_rest}"
+else
+  CWD="$_RAW_CWD"
+fi
+
 LOG_FILE="$CWD/.dev/harness/session-recovery.log"
 
 RUNS_DIR="$CWD/.dev/harness/runs"
@@ -62,6 +71,8 @@ ACTIVE_RUNS=()
 for run_dir in "$RUNS_DIR"/run-*/; do
   run_file="$run_dir/state/state.json"
   [[ -f "$run_file" ]] || continue
+  run_status=$(jq -r '.status // empty' "$run_file" 2>/dev/null)
+  [[ "$run_status" == "processing" ]] || continue
   ACTIVE_RUNS+=("$run_file")
 done
 
