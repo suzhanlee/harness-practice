@@ -138,6 +138,8 @@ class Order:
             raise ValueError("대기중 상태에서만 할인을 적용할 수 있습니다.")
         if rule in self._discounts:
             raise ValueError("이미 적용된 할인 규칙입니다.")
+        if rule.priority != 999 and any(d.priority == rule.priority for d in self._discounts):
+            raise ValueError("동일한 우선순위의 할인 규칙이 이미 적용되어 있습니다.")
         self._discounts.append(rule)
 
     def remove_discount(self, rule: AbstractDiscountRule):
@@ -150,7 +152,7 @@ class Order:
 
     def get_total_after_discounts(self) -> Money:
         total = self.total_amount
-        for rule in self._discounts:
+        for rule in sorted(self._discounts, key=lambda r: r.priority):
             discount_amount = rule.calculate(total)
             remaining = total.amount - discount_amount.amount
             total = Money(max(Decimal("0"), remaining), total.currency)
