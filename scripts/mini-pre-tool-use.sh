@@ -6,8 +6,16 @@ INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // empty')
 ARGS=$(echo "$INPUT" | jq -r '.tool_input.args // empty')
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+_RAW_CWD=$(echo "$INPUT" | jq -r '.cwd')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+
+# harness-lib.sh source 전에 normalize_cwd 인라인 처리
+if [[ "${_RAW_CWD:1:1}" == ":" ]]; then
+  _drive="${_RAW_CWD:0:1}"; _rest="${_RAW_CWD:2}"; _rest="${_rest//\\/\/}"
+  CWD="/${_drive,,}${_rest}"
+else
+  CWD="$_RAW_CWD"
+fi
 
 RUNS_DIR="$CWD/.dev/harness/runs"
 

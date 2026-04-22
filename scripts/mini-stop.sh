@@ -3,8 +3,17 @@
 # Orchestrates skill chain via run-scoped state; fallback to original compound guard
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+_RAW_CWD=$(echo "$INPUT" | jq -r '.cwd')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+
+# harness-lib.sh source 전에 normalize_cwd 인라인 처리
+if [[ "${_RAW_CWD:1:1}" == ":" ]]; then
+  _drive="${_RAW_CWD:0:1}"; _rest="${_RAW_CWD:2}"; _rest="${_rest//\\/\/}"
+  CWD="/${_drive,,}${_rest}"
+else
+  CWD="$_RAW_CWD"
+fi
+
 SESSION_FILE="$CWD/.mini-harness/session/learnings.json"
 
 RUNS_DIR="$CWD/.dev/harness/runs"
