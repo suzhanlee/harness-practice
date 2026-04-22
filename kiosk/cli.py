@@ -8,14 +8,18 @@ from application.use_cases.cart_use_cases import (
     AddToCartUseCase, RemoveFromCartUseCase, UpdateQuantityUseCase, ViewCartUseCase, CheckoutUseCase
 )
 from application.use_cases.apply_coupon import ApplyCouponUseCase
-from application.use_cases.validate_discount import ValidateDiscountUseCase
 from application.use_cases.user_use_cases import CreateUserUseCase, GetUserUseCase, AuthenticateUserUseCase
 from application.use_cases.order_history_use_cases import GetOrderHistoryUseCase, GetOrderDetailUseCase
+from application.use_cases.issue_coupon import IssueCouponUseCase
+from application.use_cases.create_split_payment import CreateSplitPaymentUseCase
+from application.use_cases.add_payment_attempt import AddPaymentAttemptUseCase
 from infrastructure.repositories.in_memory_menu_item_repository import InMemoryMenuItemRepository
 from infrastructure.repositories.in_memory_order_repository import InMemoryOrderRepository
 from infrastructure.repositories.in_memory_payment_repository import InMemoryPaymentRepository
-from infrastructure.repositories.in_memory_discount_repository import InMemoryDiscountRepository
 from infrastructure.repositories.in_memory_user_repository import InMemoryUserRepository
+from infrastructure.repositories.in_memory_coupon_repository import InMemoryCouponRepository
+from infrastructure.repositories.in_memory_split_payment_repository import InMemorySplitPaymentRepository
+from infrastructure.repositories.in_memory_receipt_repository import InMemoryReceiptRepository
 from infrastructure.seed_data import seed_menu
 from application.admin.manage_menu import AddMenuItemUseCase, UpdateMenuItemUseCase, DeleteMenuItemUseCase
 from application.admin.change_menu_price import ChangeMenuPriceUseCase
@@ -24,10 +28,13 @@ from application.admin.query_orders import QueryOrdersUseCase
 from application.events.dispatcher import EventDispatcher
 from application.event_handlers.kitchen_order_handler import KitchenOrderHandler
 from application.event_handlers.customer_notification_handler import CustomerNotificationHandler
+from application.event_handlers.order_settlement_handler import OrderSettlementHandler
+from application.event_handlers.logging_audit_handler import LoggingAuditHandler
 from application.use_cases.confirm_order import ConfirmOrderUseCase
 from application.use_cases.mark_item_prepared import StartCookingUseCase, MarkItemPreparedUseCase
 from domain.events.order_events import OrderConfirmed
 from domain.events.kitchen_events import TicketReady
+from domain.events.payment_events import OrderPaid, CouponRedeemed
 from infrastructure.repositories.in_memory_kitchen_ticket_repository import InMemoryKitchenTicketRepository
 from infrastructure.repositories.in_memory_notification_repository import InMemoryNotificationRepository
 
@@ -36,8 +43,10 @@ def build_dependencies():
     menu_repo = InMemoryMenuItemRepository()
     order_repo = InMemoryOrderRepository()
     payment_repo = InMemoryPaymentRepository()
-    discount_repo = InMemoryDiscountRepository()
     user_repo = InMemoryUserRepository()
+    coupon_repo = InMemoryCouponRepository()
+    split_payment_repo = InMemorySplitPaymentRepository()
+    receipt_repo = InMemoryReceiptRepository()
     domain_service = OrderDomainService()
 
     seed_menu(menu_repo)
@@ -52,8 +61,10 @@ def build_dependencies():
     view_cart = ViewCartUseCase(order_repo)
     checkout = CheckoutUseCase(order_repo)
 
-    apply_coupon = ApplyCouponUseCase(order_repo, discount_repo)
-    validate_discount = ValidateDiscountUseCase(discount_repo)
+    issue_coupon = IssueCouponUseCase(coupon_repo)
+    apply_coupon = ApplyCouponUseCase(coupon_repo)
+    create_split_payment = CreateSplitPaymentUseCase(order_repo, split_payment_repo)
+    add_payment_attempt = AddPaymentAttemptUseCase(split_payment_repo)
 
     create_user = CreateUserUseCase(user_repo)
     get_user = GetUserUseCase(user_repo)
@@ -74,8 +85,12 @@ def build_dependencies():
     dispatcher = EventDispatcher()
     kitchen_handler = KitchenOrderHandler(kitchen_ticket_repo)
     notification_handler = CustomerNotificationHandler(notification_repo)
+    settlement_handler = OrderSettlementHandler(order_repo, receipt_repo)
+    audit_handler = LoggingAuditHandler()
     dispatcher.register(OrderConfirmed, kitchen_handler.handle)
     dispatcher.register(TicketReady, notification_handler.handle)
+    dispatcher.register(OrderPaid, settlement_handler.handle)
+    dispatcher.register(CouponRedeemed, audit_handler.handle)
 
     confirm_order = ConfirmOrderUseCase(order_repo, dispatcher)
     start_cooking = StartCookingUseCase(kitchen_ticket_repo)
@@ -87,15 +102,19 @@ def build_dependencies():
         'process_payment': process_payment,
         'menu_repo': menu_repo,
         'order_repo': order_repo,
-        'discount_repo': discount_repo,
         'user_repo': user_repo,
+        'coupon_repo': coupon_repo,
+        'split_payment_repo': split_payment_repo,
+        'receipt_repo': receipt_repo,
         'add_to_cart': add_to_cart,
         'remove_from_cart': remove_from_cart,
         'update_quantity': update_quantity,
         'view_cart': view_cart,
         'checkout': checkout,
         'apply_coupon': apply_coupon,
-        'validate_discount': validate_discount,
+        'issue_coupon': issue_coupon,
+        'create_split_payment': create_split_payment,
+        'add_payment_attempt': add_payment_attempt,
         'create_user': create_user,
         'get_user': get_user,
         'authenticate_user': authenticate_user,
