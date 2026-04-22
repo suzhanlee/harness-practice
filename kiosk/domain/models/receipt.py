@@ -1,7 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Tuple
+from typing import Dict, List, Tuple
 from uuid import uuid4
 
 
@@ -12,6 +12,7 @@ class ReceiptRecord:
     total_amount: str
     paid_at: datetime
     applied_discounts: Tuple[str, ...] = ()
+    discount_breakdown: Tuple[Dict, ...] = field(default_factory=tuple)
 
     @classmethod
     def create(
@@ -20,6 +21,7 @@ class ReceiptRecord:
         total_amount: str,
         paid_at: datetime,
         applied_discounts: Tuple[str, ...] = (),
+        discount_breakdown: Tuple[Dict, ...] = (),
     ) -> ReceiptRecord:
         return cls(
             receipt_id=str(uuid4()),
@@ -27,4 +29,5 @@ class ReceiptRecord:
             total_amount=total_amount,
             paid_at=paid_at,
             applied_discounts=applied_discounts,
+            discount_breakdown=discount_breakdown,
         )
