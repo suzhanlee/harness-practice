@@ -6,6 +6,7 @@ from typing import List
 from uuid import UUID, uuid4
 
 from .value_objects import Money, OrderId, SplitPaymentId
+from kiosk.domain.events.order_events import OrderPaid
 
 
 class PaymentAttemptStatus(Enum):
@@ -87,8 +88,13 @@ class SplitPayment:
                 f"완납되지 않았습니다. 남은 금액: {self.remaining_amount.amount} {self.remaining_amount.currency}"
             )
         self.is_finalized = True
-        # OrderPaid event stub — OrderPaid domain event not yet defined
-        self._pending_events.append({"type": "OrderPaid", "order_id": str(self.order_id.value)})
+        self._pending_events.append(
+            OrderPaid.create(
+                order_id=self.order_id,
+                split_payment_id=self.split_payment_id,
+                total_amount=self.target_amount,
+            )
+        )
 
     @property
     def pending_events(self) -> List:

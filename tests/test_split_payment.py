@@ -8,6 +8,7 @@ from kiosk.domain.models.split_payment import (
     PaymentAttemptStatus,
 )
 from kiosk.domain.models.value_objects import Money, OrderId, SplitPaymentId
+from kiosk.domain.events.order_events import OrderPaid
 from kiosk.infrastructure.repositories.in_memory_split_payment_repository import (
     InMemorySplitPaymentRepository,
 )
@@ -66,7 +67,10 @@ class TestSplitPaymentFinalize:
         assert split_payment.is_finalized
         events = split_payment.pending_events
         assert len(events) == 1
-        assert events[0]["type"] == "OrderPaid"
+        assert isinstance(events[0], OrderPaid)
+        assert events[0].order_id == split_payment.order_id
+        assert events[0].split_payment_id == split_payment.split_payment_id
+        assert events[0].total_amount == split_payment.target_amount
 
     def test_finalize_when_not_fully_paid_raises_value_error(self, split_payment):
         """finalize() raises ValueError when payment is incomplete."""
