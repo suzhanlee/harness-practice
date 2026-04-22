@@ -81,6 +81,17 @@ task 수를 파악하고 출력:
 📋 Task 개수: N개
 ```
 
+**1-4. pipeline_stage 초기화 가드 (idempotent)**
+
+taskify가 레거시 포맷을 썼거나 사람이 수동 편집한 spec을 위한 안전망. 필드가 없는 task만 `"not_started"`로 채운다.
+
+```bash
+jq '.tasks |= map(if has("pipeline_stage") | not then . + {pipeline_stage: "not_started"} else . end)' \
+  $SPEC_PATH > "${SPEC_PATH}.tmp" && mv "${SPEC_PATH}.tmp" $SPEC_PATH
+```
+
+이미 필드가 있는 task는 값 유지 (재실행해도 안전).
+
 ---
 
 ### Step 2: Analyze Dependencies
