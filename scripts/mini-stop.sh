@@ -83,13 +83,89 @@ if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
     dependency-resolve)
       jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
         "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+      echo "{\"decision\":\"block\",\"reason\":\"gh-issue-sync 스킬을 실행하세요. args: \\\"run_id:$RUN_ID\\\"\"}"
+      exit 0
+      ;;
+    gh-issue-sync)
+      jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
       echo "{\"decision\":\"block\",\"reason\":\"mini-execute 스킬을 실행하세요. args: \\\"run_id:$RUN_ID\\\"\"}"
       exit 0
       ;;
     mini-execute)
       jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
         "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+
+      # ── 상태 스캐너: spec.json을 보고 다음 강제 액션 결정 (Option A 파이프라인) ──
+      SPEC_REL=$(jq -r '.paths.spec // empty' "$STATE_FILE")
+      SPEC="$CWD/$SPEC_REL"
+      if [[ -z "$SPEC_REL" || ! -f "$SPEC" ]]; then
+        # spec 없음 → 바로 compound
+        echo "{\"decision\":\"block\",\"reason\":\"mini-compound 스킬을 실행하세요. args: \\\"run_id:$RUN_ID\\\"\"}"
+        exit 0
+      fi
+
+      ATTEMPT_LIMIT=3
+
+      # 우선순위 1: validated → gh-pr-open 강제
+      TID=$(jq -r '[.tasks[] | select(.pipeline_stage == "validated")] | .[0].task_id // empty' "$SPEC")
+      if [[ -n "$TID" ]]; then
+        COUNT=$(increment_attempt "$STATE_FILE" "$TID" "pr_open")
+        if attempt_exceeded "$STATE_FILE" "$TID" "pr_open" "$ATTEMPT_LIMIT"; then
+          emit_escalation "$TID" "gh-pr-open ${ATTEMPT_LIMIT}회 초과"
+          exit 0
+        fi
+        echo "{\"decision\":\"block\",\"reason\":\"gh-pr-open 스킬을 실행하세요. args: \\\"run_id:$RUN_ID task_id:$TID\\\" (시도 $COUNT/$ATTEMPT_LIMIT)\"}"
+        exit 0
+      fi
+
+      # 우선순위 2: pr_opened → gh-pr-review 강제
+      TID=$(jq -r '[.tasks[] | select(.pipeline_stage == "pr_opened")] | .[0].task_id // empty' "$SPEC")
+      if [[ -n "$TID" ]]; then
+        COUNT=$(increment_attempt "$STATE_FILE" "$TID" "review")
+        if attempt_exceeded "$STATE_FILE" "$TID" "review" "$ATTEMPT_LIMIT"; then
+          emit_escalation "$TID" "gh-pr-review ${ATTEMPT_LIMIT}회 초과"
+          exit 0
+        fi
+        echo "{\"decision\":\"block\",\"reason\":\"gh-pr-review 스킬을 실행하세요. args: \\\"run_id:$RUN_ID task_id:$TID\\\" (시도 $COUNT/$ATTEMPT_LIMIT)\"}"
+        exit 0
+      fi
+
+      # 우선순위 3: failed 또는 미완료(not_started/implementing) → mini-execute 재진입
+      PENDING=$(jq '[.tasks[] | select(
+          .pipeline_stage == "failed"
+          or (.pipeline_stage // "not_started") == "not_started"
+          or .pipeline_stage == "implementing"
+        )] | length' "$SPEC")
+      if [[ "${PENDING:-0}" -gt 0 ]]; then
+        echo "{\"decision\":\"block\",\"reason\":\"mini-execute 스킬을 계속 실행하세요 (${PENDING}개 미완료). args: \\\"run_id:$RUN_ID\\\"\"}"
+        exit 0
+      fi
+
+      # 우선순위 4: 전부 reviewed이지만 open PR 존재 → 사람 머지 대기
+      OPEN_PRS=$(jq '[.tasks[] | select(.pr_state == "open")] | length' "$SPEC" 2>/dev/null || echo 0)
+      if [[ "${OPEN_PRS:-0}" -gt 0 ]]; then
+        MSG="⏸ ${OPEN_PRS}개 PR 머지 대기 중. 머지 후 'bash scripts/sync-pr-state.sh $RUN_ID' → '/mini-compound run_id:$RUN_ID' 순으로 실행하세요."
+        echo "{\"decision\":\"block\",\"reason\":\"$MSG\"}"
+        exit 0
+      fi
+
+      # 우선순위 5: 전부 merged → mini-compound
       echo "{\"decision\":\"block\",\"reason\":\"mini-compound 스킬을 실행하세요. args: \\\"run_id:$RUN_ID\\\"\"}"
+      exit 0
+      ;;
+    gh-pr-open)
+      # gh-pr-open 성공 시 (pipeline_stage=pr_opened 기록됨) → pr_open 카운터 리셋, mini-execute case로 재진입
+      jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts | .skill_name = "mini-execute"' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+      # 직전 태스크의 카운터 리셋은 gh-pr-open 내부에서 수행 권장 (여기선 스킵)
+      echo "{\"decision\":\"block\",\"reason\":\"mini-execute 상태 스캔 재개. args: \\\"run_id:$RUN_ID\\\"\"}"
+      exit 0
+      ;;
+    gh-pr-review)
+      jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts | .skill_name = "mini-execute"' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+      echo "{\"decision\":\"block\",\"reason\":\"mini-execute 상태 스캔 재개. args: \\\"run_id:$RUN_ID\\\"\"}"
       exit 0
       ;;
     mini-compound)
