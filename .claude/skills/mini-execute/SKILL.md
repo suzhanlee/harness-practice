@@ -106,6 +106,17 @@ FINAL_STATUS=$(jq -r --arg tid "${TASK_ID}" '.tasks[] | select(.task_id == $tid)
 - `"end"` → `TaskUpdate(taskId={TASK_ID}, status="completed")`
 - `"not_start"` (task-executor 실패) → `TaskUpdate(taskId={TASK_ID}, status="deleted")`
 
+### 3-3. PR 발행/리뷰는 Stop hook 상태 스캐너가 강제
+
+mini-execute는 **PR/리뷰 호출을 직접 하지 않는다.** validate-tasks가 `pipeline_stage="validated"`로 전이한 태스크가 생기면, 다음 Stop hook 진입 시 `mini-stop.sh`의 상태 스캐너가 우선순위 규칙에 따라 `gh-pr-open` → `gh-pr-review`를 강제로 블록 지시한다.
+
+책임 분리:
+- mini-execute: DAG 기반 task-executor 디스패치 + 결과 집계
+- Stop hook: `pipeline_stage` 스캔 → 다음 강제 액션 지시
+- gh-pr-open / gh-pr-review: 자기 단계로의 `pipeline_stage` 전이
+
+상태 전이와 우선순위는 `.claude/skills/taskify/reference/pipeline-stages.md` 참조.
+
 실패 태스크가 있으면 의존 태스크를 건너뜀:
 ```
 ⚠ {TASK_ID} 실패 — {TASK_ID_J}, {TASK_ID_K}는 의존성 미충족으로 건너뜁니다.
