@@ -4,8 +4,7 @@ from decimal import Decimal
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId
-from .discount import Discount
+from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId, AbstractDiscountRule
 from kiosk.domain.events.base import DomainEvent
 
 
@@ -52,7 +51,7 @@ class Order:
     items: List[OrderItem] = field(default_factory=list)
     status: OrderStatus = OrderStatus.PENDING
     user_id: Optional[UserId] = None
-    _discounts: List[Discount] = field(default_factory=list, init=False)
+    _discounts: List[AbstractDiscountRule] = field(default_factory=list, init=False)
     history: List[OrderStateSnapshot] = field(default_factory=list, init=False)
     _pending_events: List[DomainEvent] = field(default_factory=list, init=False, repr=False)
 
@@ -134,36 +133,27 @@ class Order:
         self.status = OrderStatus.CANCELLED
         self._record_history()
 
-    def apply_discount(self, discount: Discount):
+    def apply_discount(self, rule: AbstractDiscountRule):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태에서만 할인을 적용할 수 있습니다.")
-        existing = next(
-            (d for d in self._discounts if d.code == discount.code),
-            None
-        )
-        if existing:
-            raise ValueError(f"이미 적용된 쿠폰입니다: {discount.code.value}")
-        self._discounts.append(discount)
+        if rule in self._discounts:
+            raise ValueError("이미 적용된 할인 규칙입니다.")
+        self._discounts.append(rule)
 
-    def remove_discount(self, discount_id: DiscountId):
+    def remove_discount(self, rule: AbstractDiscountRule):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태에서만 할인을 제거할 수 있습니다.")
-        self._discounts = [d for d in self._discounts if d.id != discount_id]
+        self._discounts = [d for d in self._discounts if d != rule]
 
-    def get_discounts(self) -> List[Discount]:
+    def get_discounts(self) -> List[AbstractDiscountRule]:
         return self._discounts.copy()
 
     def get_total_after_discounts(self) -> Money:
         total = self.total_amount
-        for discount in self._discounts:
-            if discount.rule.discount_type == "fixed":
-                total = Money(
-                    max(Decimal("0"), total.amount - discount.rule.value),
-                    total.currency
-                )
-            elif discount.rule.discount_type == "percentage":
-                discount_amount = total.amount * (discount.rule.value / Decimal("100"))
-                total = Money(total.amount - discount_amount, total.currency)
+        for rule in self._discounts:
+            discount_amount = rule.calculate(total)
+            remaining = total.amount - discount_amount.amount
+            total = Money(max(Decimal("0"), remaining), total.currency)
         return total
 
     @property
