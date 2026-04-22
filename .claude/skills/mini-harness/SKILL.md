@@ -3,7 +3,7 @@ name: mini-harness
 description: |
   Use when the user says "/mini-harness [goal]".
   Hook-based orchestrator: triggers the full learning loop via Stop hooks.
-  Chain: interview → council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound.
+  Chain: interview → council → design-review → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound.
 allowed-tools:
   - Glob
   - Grep
@@ -24,13 +24,26 @@ allowed-tools:
 
 ## 오케스트레이션 체인 순서
 
+```mermaid
+flowchart LR
+    MH[mini-harness] --> IV[interview]
+    IV --> CO[council]
+    CO --> DR[design-review]
+    DR --> MS[mini-specify]
+    MS --> TA[taskify]
+    TA --> DP[dependency-resolve]
+    DP --> ME[mini-execute]
+    ME --> MC[mini-compound]
+```
+
 1. **interview** — 소크라테스 문답(6개 질문)으로 goal 구체화, `.dev/harness/runs/run-{run_id}/interview/interview.json` 저장
 2. **council** — interview.json + goal로 ADR 생성 (product-owner 패널 포함), `.dev/harness/runs/run-{run_id}/adr/` 저장
-3. **mini-specify** — goal + ADR로 요구사항 생성, `.dev/harness/runs/run-{run_id}/requirement/requirements.json` 저장
-4. **taskify** — requirements.json 읽기, 태스크 분해, `.dev/harness/runs/run-{run_id}/spec/spec.json` 저장
-5. **dependency-resolve** — spec.json의 task 간 의존성 분석, dependencies[] 및 priority 필드 추가
-6. **mini-execute** — spec.json 읽기, 의존성 순서에 따라 모든 태스크 실행
-7. **mini-compound** — `.mini-harness/session/learnings.json` → `.mini-harness/learnings/*.md` 영구 파일 승격
+3. **design-review** — ADR 기반 계약면(테이블·애그리게이트·인터페이스·모듈 경계·이벤트)을 고정 3명(+선택 2명) 패널이 단일 라운드로 리뷰, AskUserQuestion 승인 후 `.dev/harness/runs/run-{run_id}/review/` 저장
+4. **mini-specify** — goal + ADR + design-review로 요구사항 생성, `.dev/harness/runs/run-{run_id}/requirement/requirements.json` 저장
+5. **taskify** — requirements.json 읽기, 태스크 분해, `.dev/harness/runs/run-{run_id}/spec/spec.json` 저장
+6. **dependency-resolve** — spec.json의 task 간 의존성 분석, dependencies[] 및 priority 필드 추가
+7. **mini-execute** — spec.json 읽기, 의존성 순서에 따라 모든 태스크 실행
+8. **mini-compound** — `.mini-harness/session/learnings.json` → `.mini-harness/learnings/*.md` 영구 파일 승격
 
 ## 동작 방식
 
@@ -41,25 +54,20 @@ allowed-tools:
 
 ## 상태 전이
 
-```
-runs/run-{run_id}/state/state.json: { run_id, skill_name, status: processing|end, goal, paths, timestamp }
+`runs/run-{run_id}/state/state.json`: `{ run_id, skill_name, status: processing|end, goal, paths, timestamp }`
 
-mini-harness (processing)
-  → Stop hook: status=end → trigger interview (run_id:xxx)
-interview (processing)
-  → Stop hook: status=end → trigger council (run_id:xxx)
-council (processing)
-  → Stop hook: status=end → trigger mini-specify (run_id:xxx)
-mini-specify (processing)
-  → Stop hook: status=end → trigger taskify (run_id:xxx)
-taskify (processing)
-  → Stop hook: status=end → trigger dependency-resolve (run_id:xxx)
-dependency-resolve (processing)
-  → Stop hook: status=end → trigger mini-execute (run_id:xxx)
-mini-execute (processing)
-  → Stop hook: status=end → trigger mini-compound (run_id:xxx)
-mini-compound (processing)
-  → Stop hook: status=end → delete state/state.json + sessions/{session_id} → approve exit
+```mermaid
+stateDiagram-v2
+    [*] --> mini_harness
+    mini_harness --> interview: block /interview
+    interview --> council: block /council
+    council --> design_review: block /design-review
+    design_review --> mini_specify: block /mini-specify (review: 첨부)
+    mini_specify --> taskify: block /taskify
+    taskify --> dependency_resolve: block /dependency-resolve
+    dependency_resolve --> mini_execute: block /mini-execute
+    mini_execute --> mini_compound: block /mini-compound
+    mini_compound --> [*]: delete state + approve exit
 ```
 
 ## 하네스 파일 경로 전체 목록
@@ -73,6 +81,7 @@ mini-compound (processing)
 | `.dev/harness/runs/run-{run_id}/requirement/requirements.json` | `mini-specify` 스킬 | 유지 | 요구사항 목록 |
 | `.dev/harness/runs/run-{run_id}/spec/spec.json` | `taskify` 스킬 | 유지 | 태스크 명세 |
 | `.dev/harness/runs/run-{run_id}/adr/YYYY-MM-DD-{slug}.md` | `council` 스킬 | 유지 | 아키텍처 결정 기록 |
+| `.dev/harness/runs/run-{run_id}/review/YYYY-MM-DD-{slug}.md` | `design-review` 스킬 | 유지 | 계약면 리뷰 결과 (테이블/애그리게이트/인터페이스/모듈/이벤트) |
 | `.mini-harness/session/learnings.json` | `mini-execute` 스킬 | `mini-compound` 스킬 | 세션 내 마찰 임시 기록 |
 | `.mini-harness/learnings/*.md` | `mini-compound` 스킬 | 유지 (영구 학습 라이브러리) | 검색 가능한 영구 rule |
 

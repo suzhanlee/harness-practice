@@ -49,7 +49,23 @@ if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
       [[ -n "$ADR_FILE" ]] && ADR_ARG=" adr:$ADR_FILE"
       jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
         "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
-      echo "{\"decision\":\"block\",\"reason\":\"mini-specify 스킬을 실행하세요. args: \\\"$GOAL$ADR_ARG run_id:$RUN_ID\\\"\"}"
+      echo "{\"decision\":\"block\",\"reason\":\"design-review 스킬을 실행하세요. args: \\\"run_id:$RUN_ID$ADR_ARG\\\"\"}"
+      exit 0
+      ;;
+    design-review)
+      ADR_DIR=$(jq -r '.paths.adr_dir // empty' "$STATE_FILE")
+      REVIEW_DIR=$(jq -r '.paths.review_dir // empty' "$STATE_FILE")
+      ADR_FILE=""
+      REVIEW_FILE=""
+      [[ -n "$ADR_DIR" ]] && ADR_FILE=$(ls -t "$CWD/$ADR_DIR/"*.md 2>/dev/null | head -1)
+      [[ -n "$REVIEW_DIR" ]] && REVIEW_FILE=$(ls -t "$CWD/$REVIEW_DIR/"*.md 2>/dev/null | head -1)
+      ADR_ARG=""
+      REVIEW_ARG=""
+      [[ -n "$ADR_FILE" ]] && ADR_ARG=" adr:$ADR_FILE"
+      [[ -n "$REVIEW_FILE" ]] && REVIEW_ARG=" review:$REVIEW_FILE"
+      jq --arg ts "$TIMESTAMP" '.status = "end" | .timestamp = $ts' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+      echo "{\"decision\":\"block\",\"reason\":\"mini-specify 스킬을 실행하세요. args: \\\"$GOAL$ADR_ARG$REVIEW_ARG run_id:$RUN_ID\\\"\"}"
       exit 0
       ;;
     mini-specify)

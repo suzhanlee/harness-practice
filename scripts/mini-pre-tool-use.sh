@@ -25,7 +25,8 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
              "$CWD/$RUN_DIR/interview" \
              "$CWD/$RUN_DIR/requirement" \
              "$CWD/$RUN_DIR/spec" \
-             "$CWD/$RUN_DIR/adr"
+             "$CWD/$RUN_DIR/adr" \
+             "$CWD/$RUN_DIR/review"
 
     STATE_FILE="$CWD/$RUN_DIR/state/state.json"
 
@@ -40,6 +41,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
       --arg req_path  "$RUN_DIR/requirement/requirements.json" \
       --arg spec_path "$RUN_DIR/spec/spec.json" \
       --arg adr_dir   "$RUN_DIR/adr" \
+      --arg review_dir "$RUN_DIR/review" \
       --arg sess_dir  "$RUN_DIR/sessions" \
       '{
         "run_id":     $run_id,
@@ -54,6 +56,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
           "requirements": $req_path,
           "spec":         $spec_path,
           "adr_dir":      $adr_dir,
+          "review_dir":   $review_dir,
           "sessions_dir": $sess_dir
         }
       }' > "$STATE_FILE"
