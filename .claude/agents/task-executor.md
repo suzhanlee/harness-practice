@@ -47,6 +47,32 @@ spec.json에서 **정확히 하나의 태스크**를 구현하고, 단계별로 
 - 태스크가 속한 DDD 레이어 확인 (domain, application, infrastructure)
 - 핵심 모델을 건드리는 경우 `.dev/harness/runs/run-{run_id}/adr/`의 관련 ADR 확인
 
+### Step 2.5: 태스크 브랜치 체크아웃 (GitHub 연동)
+
+spec.json의 `dependencies`를 확인해 **base 브랜치** 결정:
+- 의존 태스크 중 `pr_state != "merged"`인 것이 있으면 그 태스크의 `branch`를 base로 (stacked)
+- 전부 머지됐거나 의존 없으면 `main`
+
+```bash
+# slug: action에서 소문자+하이픈으로 20자 이내 (한글이면 타임스탬프 fallback)
+SLUG=$(echo "$ACTION" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-20)
+[[ -z "$SLUG" ]] && SLUG="t$(date +%s)"
+BRANCH="feat/task-${TASK_ID}-${SLUG}"
+
+# base 결정
+BASE=$(resolve_base_branch "$TASK_ID" "$SPEC_PATH")  # helper: 의존 탐색
+
+git fetch origin "$BASE" --quiet
+git checkout -B "$BRANCH" "origin/${BASE}"
+
+# spec.json에 branch 기록 + pipeline_stage="implementing"
+jq --arg tid "$TASK_ID" --arg br "$BRANCH" \
+  '.tasks |= map(if .task_id == $tid then .branch = $br | .pipeline_stage = "implementing" else . end)' \
+  "$SPEC_PATH" > /tmp/spec_tmp.json && mv /tmp/spec_tmp.json "$SPEC_PATH"
+```
+
+> GitHub 연동이 비활성(`gh` 없음 또는 origin이 GitHub 아님)이면 이 단계를 스킵하고 기존 흐름 유지.
+
 ### Step 3: 명세된 순서대로 구현
 
 각 step/action에 대해:
@@ -77,6 +103,21 @@ jq --arg tid "${TASK_ID}" '
 ```
 
 검증 실패 시 spec.json status를 변경하지 않는다 (not_start 유지 — validate-tasks가 복구 역할).
+
+### Step 5.5: 커밋 & 푸시 (GitHub 연동)
+
+검증 통과 시에만:
+
+```bash
+git add -A
+git commit -m "feat(task-${TASK_ID}): ${ACTION}
+
+Closes (pending PR) task-${TASK_ID} of run ${RUN_ID}.
+"
+git push -u origin "$BRANCH"
+```
+
+**PR은 task-executor가 만들지 않는다** — validate-tasks 통과 후 mini-execute가 `gh-pr-open` 스킬로 생성. 이 분리는 "실제 검증 통과분만 PR" 원칙 때문.
 
 그 후 호출 에이전트에게 **이 JSON만** 반환:
 
