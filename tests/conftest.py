@@ -5,10 +5,18 @@ from decimal import Decimal
 from typing import List
 
 from kiosk.domain.models.coupon import Coupon
+from kiosk.domain.models.member import Member, PointAccount
 from kiosk.domain.models.menu_item import MenuItem, MenuCategory
-from kiosk.domain.models.value_objects import Money
+from kiosk.domain.models.value_objects import (
+    MemberGrade,
+    MemberId,
+    Money,
+    PointAccountId,
+    UserId,
+)
 from kiosk.domain.services.order_domain_service import OrderDomainService
 from kiosk.infrastructure.repositories.in_memory_coupon_repository import InMemoryCouponRepository
+from kiosk.infrastructure.repositories.in_memory_member_repository import InMemoryMemberRepository
 from kiosk.infrastructure.repositories.in_memory_menu_item_repository import InMemoryMenuItemRepository
 from kiosk.infrastructure.repositories.in_memory_order_repository import InMemoryOrderRepository
 from kiosk.infrastructure.repositories.in_memory_payment_repository import InMemoryPaymentRepository
@@ -94,6 +102,53 @@ def split_payment_repo():
 @pytest.fixture
 def receipt_repo():
     return InMemoryReceiptRepository()
+
+
+# ──────────────────────────────────────────────
+# Member fixtures
+# ──────────────────────────────────────────────
+
+@pytest.fixture
+def member_repo():
+    return InMemoryMemberRepository()
+
+
+def _make_member(grade: MemberGrade, balance_amount: Decimal) -> Member:
+    member_id = MemberId.generate()
+    user_id = UserId.generate()
+    account = PointAccount(
+        account_id=PointAccountId.generate(),
+        balance=Money(balance_amount),
+        grade=grade,
+        total_paid=Money(Decimal("0")),
+    )
+    return Member.register(
+        member_id=member_id,
+        user_id=user_id,
+        name="테스트회원",
+        email="test@example.com",
+        point_account=account,
+    )
+
+
+@pytest.fixture
+def regular_member() -> Member:
+    """NORMAL 등급, 잔액 0원 회원."""
+    return _make_member(MemberGrade.NORMAL, Decimal("0"))
+
+
+@pytest.fixture
+def vip_member() -> Member:
+    """VIP 등급, 잔액 5000원 회원."""
+    return _make_member(MemberGrade.VIP, Decimal("5000"))
+
+
+@pytest.fixture
+def member_with_points():
+    """amount 파라미터로 잔액을 설정하는 팩토리 픽스처."""
+    def _factory(amount: int) -> Member:
+        return _make_member(MemberGrade.NORMAL, Decimal(str(amount)))
+    return _factory
 
 
 # ──────────────────────────────────────────────
