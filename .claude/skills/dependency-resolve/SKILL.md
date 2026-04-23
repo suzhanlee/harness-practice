@@ -4,12 +4,16 @@ description: |
   Use when the user says "/dependency-resolve".
   Analyzes task dependencies in $SPEC_PATH,
   identifies technical inter-task dependencies, validates for circular dependencies,
-  and updates spec.json with dependencies[] and priority fields.
+  updates spec.json with dependencies[], priority, and task_id fields,
+  then registers all tasks in Claude task system via TaskCreate/TaskUpdate(addBlockedBy).
 allowed-tools:
   - Read
   - Bash
   - Write
   - Grep
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # dependency-resolve — Task Dependency Analysis
@@ -76,6 +80,17 @@ task 수를 파악하고 출력:
 ```
 📋 Task 개수: N개
 ```
+
+**1-4. pipeline_stage 초기화 가드 (idempotent)**
+
+taskify가 레거시 포맷을 썼거나 사람이 수동 편집한 spec을 위한 안전망. 필드가 없는 task만 `"not_started"`로 채운다.
+
+```bash
+jq '.tasks |= map(if has("pipeline_stage") | not then . + {pipeline_stage: "not_started"} else . end)' \
+  $SPEC_PATH > "${SPEC_PATH}.tmp" && mv "${SPEC_PATH}.tmp" $SPEC_PATH
+```
+
+이미 필드가 있는 task는 값 유지 (재실행해도 안전).
 
 ---
 
@@ -187,23 +202,87 @@ jq '.tasks |= map(
     "dependencies": [...],  # Step 2에서 분석한 의존성
     "priority": "P0|P1|P2"  # Step 4에서 할당한 priority
   }
-)' $SPEC_PATH > tmp && mv tmp $SPEC_PATH
+)' "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
 ```
 
 ---
 
-### Step 6: Completion Report
+### Step 6: TaskCreate + task_id 저장 + TaskUpdate(addBlockedBy) — Claude task 시스템 등록
+
+각 task에 대해 TaskCreate를 호출하고, **반환된 Claude task ID를 즉시 spec.json의 `task_id` 필드로 저장**한다.
+이 ID가 시스템 전체에서 사용하는 유일한 task 식별자이다.
+
+**6-1. 각 task에 대해 TaskCreate → task_id 저장**
+
+각 태스크 N(0-based 인덱스)마다:
+
+```bash
+ACTION=$(jq -r --argjson i N '.tasks[$i].action' "$SPEC_PATH")
+TASK_JSON=$(jq --argjson i N '.tasks[$i]' "$SPEC_PATH")
+```
+
+TaskCreate 파라미터 (공식 스펙):
+```
+subject:     "[{RUN_ID}] Task{N}: {ACTION}"
+description: {TASK_JSON}       ← jq로 추출한 task 블록 전체 (JSON 문자열)
+activeForm:  "Task{N} 구현 중..."
+```
+
+TaskCreate 반환값(Claude task ID)을 즉시 spec.json에 저장:
+```bash
+CLAUDE_TASK_ID="{TaskCreate 반환값}"
+jq --argjson i N --arg tid "${CLAUDE_TASK_ID}" \
+  '.tasks[$i].task_id = $tid' \
+  "$SPEC_PATH" > tmp && mv tmp "$SPEC_PATH"
+```
+
+모든 task에 대해 반복. 완료 후 검증:
+```bash
+jq '[.tasks[] | {task_id, action}]' "$SPEC_PATH"
+```
+
+**6-2. TaskUpdate(addBlockedBy) — DAG 구성**
+
+각 task의 `dependencies` 배열(0-based 인덱스)을 읽어, 해당 인덱스의 task_id(Claude task ID)로 변환해 반영한다.
+
+```bash
+# 태스크 N의 의존성 인덱스 목록:
+DEPS=$(jq -r --argjson i N '.tasks[$i].dependencies[]' "$SPEC_PATH")
+# 각 dep 인덱스 → spec.json에서 task_id 조회:
+DEP_TASK_ID=$(jq -r --argjson d DEP_INDEX '.tasks[$d].task_id' "$SPEC_PATH")
+```
+
+TaskUpdate 파라미터 (공식 스펙):
+```
+taskId:       spec.json의 tasks[N].task_id   ← Claude task ID
+addBlockedBy: [spec.json의 tasks[dep].task_id for dep in dependencies]
+```
+
+예시 (Task2.dependencies = [0, 1]):
+```bash
+jq -r '.tasks[2].task_id' "$SPEC_PATH"          # → Claude task ID of task2
+jq -r '.tasks[0].task_id, .tasks[1].task_id' "$SPEC_PATH"  # → addBlockedBy 목록
+```
+
+`dependencies: []`인 태스크(P0)는 TaskUpdate 불필요.
+
+**6-3. TaskList — DAG 현황 확인**
+
+TaskList를 호출해 등록된 전체 태스크와 blockedBy 관계를 출력한다.
+
+---
+
+### Step 7: Completion Report
 
 ```
 ✓ dependency-resolve 완료
 ───────────────────────────────────────
-Task 0: 메뉴 필터링 [P0, dependencies: []]
-Task 1: 수량 제한 [P1, dependencies: [0]]
-Task 2: 결제 수단 [P1, dependencies: [1]]
-Task 3: 결제 금액 [P1, dependencies: [2]]
+Task0 [P0, dependencies: []] → task_id: {Claude ID}
+Task1 [P0, dependencies: []] → task_id: {Claude ID}
+Task2 [P1, dependencies: [0, 1]] → task_id: {Claude ID}
+Task3 [P1, dependencies: [2]] → task_id: {Claude ID}
 
-실행 순서: Task 0 → Task 1 → Task 2 → Task 3
-병렬 가능: Task 0 (표시 목적, mini-execute는 순차 실행)
+Claude task DAG 등록 완료 (TaskCreate N개 / addBlockedBy M개)
 ───────────────────────────────────────
 ```
 
@@ -216,3 +295,4 @@ Task 3: 결제 금액 [P1, dependencies: [2]]
 - 순환 의존성 발견 시 spec.json을 수정하지 않고 중단.
 - step 텍스트 분석에서 과도한 false positive가 나면, 사용자에게 의존성 재검토를 요청.
 - 기존 spec.json에 이미 `dependencies` 필드가 있으면 덮어씌운다 (재실행 안전).
+- `task_id`는 반드시 TaskCreate 반환값을 사용한다. 임의 문자열("task-N" 등) 사용 금지.

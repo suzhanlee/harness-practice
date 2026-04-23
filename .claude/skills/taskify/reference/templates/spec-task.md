@@ -11,7 +11,8 @@
     "구체적 구현 행동 2",
     "구체적 구현 행동 3"
   ],
-  "status": "not_start"
+  "status": "not_start",
+  "pipeline_stage": "not_started"
 }
 ```
 
@@ -22,7 +23,8 @@
 | `action` | string | "동사+목적어" 형태 필수 |
 | `verification` | string | 실행 가능한 CLI 명령어만 허용. 설명문 금지 |
 | `step` | string[] | 3~5개. 빈 배열 금지 |
-| `status` | "not_start" | 초기값 고정 |
+| `status` | "not_start" | 초기값 고정 (태스크 구현 완료 여부) |
+| `pipeline_stage` | "not_started" | 초기값 고정 (CI 파이프라인 진행 단계 — `pipeline-stages.md` 참조) |
 
 ---
 
@@ -38,8 +40,10 @@
     "성공 시 201 + 장바구니 상태 반환"
   ],
   "status": "not_start",
+  "pipeline_stage": "not_started",
   "dependencies": [0, 1],
-  "priority": "P1"
+  "priority": "P1",
+  "task_id": "task-3"
 }
 ```
 
@@ -49,3 +53,6 @@
 |------|------|-----|
 | `dependencies` | number[] | 선행 task 인덱스 (0-based). 없으면 `[]` |
 | `priority` | string | P0=독립, P1=의존 있음, P2=말단 |
+| `task_id` | string | `"task-N"` — Claude task 시스템 ID |
+
+> `pipeline_stage`는 taskify에서 이미 `"not_started"`로 초기화되어 있어야 한다. dependency-resolve는 필드가 없는 레거시 spec만 보정한다 (idempotent 가드).

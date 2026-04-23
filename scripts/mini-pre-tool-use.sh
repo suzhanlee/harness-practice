@@ -6,10 +6,16 @@ INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 SKILL_NAME=$(echo "$INPUT" | jq -r '.tool_input.skill // empty')
 ARGS=$(echo "$INPUT" | jq -r '.tool_input.args // empty')
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+_RAW_CWD=$(echo "$INPUT" | jq -r '.cwd')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 
-RUNS_DIR="$CWD/.dev/harness/runs"
+# harness-lib.sh source 전에 normalize_cwd 인라인 처리
+if [[ "${_RAW_CWD:1:1}" == ":" ]]; then
+  _drive="${_RAW_CWD:0:1}"; _rest="${_RAW_CWD:2}"; _rest="${_rest//\\/\/}"
+  CWD="/${_drive,,}${_rest}"
+else
+  CWD="$_RAW_CWD"
+fi
 
 source "$CWD/scripts/harness-lib.sh"
 
@@ -25,7 +31,8 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
              "$CWD/$RUN_DIR/interview" \
              "$CWD/$RUN_DIR/requirement" \
              "$CWD/$RUN_DIR/spec" \
-             "$CWD/$RUN_DIR/adr"
+             "$CWD/$RUN_DIR/adr" \
+             "$CWD/$RUN_DIR/review"
 
     STATE_FILE="$CWD/$RUN_DIR/state/state.json"
 
@@ -40,6 +47,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
       --arg req_path  "$RUN_DIR/requirement/requirements.json" \
       --arg spec_path "$RUN_DIR/spec/spec.json" \
       --arg adr_dir   "$RUN_DIR/adr" \
+      --arg review_dir "$RUN_DIR/review" \
       --arg sess_dir  "$RUN_DIR/sessions" \
       '{
         "run_id":     $run_id,
@@ -54,6 +62,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
           "requirements": $req_path,
           "spec":         $spec_path,
           "adr_dir":      $adr_dir,
+          "review_dir":   $review_dir,
           "sessions_dir": $sess_dir
         }
       }' > "$STATE_FILE"
@@ -62,8 +71,8 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
     [[ -n "$SESSION_ID" ]] && touch "$CWD/$RUN_DIR/sessions/${SESSION_ID}"
 
   else
-    # 체인 중 다음 스킬: 세션 포인터로 STATE_FILE resolve
-    STATE_FILE=$(resolve_run_state "$CWD" "$SESSION_ID")
+    # 체인 중 다음 스킬: 세션 포인터 → 폴백 스캔 순으로 STATE_FILE resolve
+    STATE_FILE=$(resolve_active_state "$CWD" "$SESSION_ID")
 
     if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
       # 세션 포인터 갱신 (compact 후 새 session_id로 들어왔을 경우 대비)
@@ -86,7 +95,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
           "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
       fi
     fi
-    # STATE_FILE이 없으면 (수동 호출) hook은 아무것도 하지 않음
+    # STATE_FILE이 없으면 (수동 호출 + 활성 run 없음) hook은 아무것도 하지 않음
   fi
 fi
 

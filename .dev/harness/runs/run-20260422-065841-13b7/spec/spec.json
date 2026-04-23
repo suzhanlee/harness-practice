@@ -1,0 +1,194 @@
+{
+  "run_id": "20260422-065841-13b7",
+  "tasks": [
+    {
+      "action": "DiscountRule ABC 계층 및 관련 Value Object 구현",
+      "verification": "pytest tests/test_discount_rule.py -v",
+      "step": [
+        "value_objects.py에 CouponId, SplitPaymentId frozen dataclass VO 추가",
+        "frozen dataclass + ABC 호환성 PoC 검증 (ABCMeta와 frozen=True 서브클래스 동시 선언 확인)",
+        "DiscountRule ABC(frozen+ABCMeta), FixedDiscountRule(amount: Money), PercentageDiscountRule(percent: Decimal) 구현 → value_objects.py",
+        "DiscountCalculation VO(original/discount/final Money, final=max(0, original-discount)), DiscountChain VO(policies: tuple[DiscountRule], apply() → DiscountCalculation) 추가",
+        "tests/test_discount_rule.py 작성: 다형성 호출 및 DiscountChain 정률→정액 순서 검증"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [],
+      "priority": "P0",
+      "task_id": "1"
+    },
+    {
+      "action": "Order 할인 적용 로직을 DiscountRule 다형성으로 리팩터",
+      "verification": "pytest tests/test_order_discount.py -v",
+      "step": [
+        "kiosk/domain/models/order.py의 _discounts 타입을 List[DiscountRule]로 교체",
+        "get_total_after_discounts()의 문자열 discount_type 분기를 DiscountRule.calculate() 다형 호출로 전환",
+        "기존 tests/test_order_discount.py 7개 테스트를 DiscountRule 인스턴스 기반 기대값으로 마이그레이션"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1",
+      "task_id": "2"
+    },
+    {
+      "action": "Coupon Aggregate 및 CouponRepository 구현",
+      "verification": "pytest tests/test_coupon.py -v",
+      "step": [
+        "kiosk/domain/models/coupon.py 생성: Coupon 클래스 (유효기간·사용횟수·1인1회 불변식, redeem(order_id, now: datetime) 원자적 전이, _pending_events, version 필드)",
+        "kiosk/domain/repositories/coupon_repository.py 생성: CouponRepository ABC (save/find_by_id/find_by_code 시그니처, DuplicateCouponCodeError 예외 정의)",
+        "kiosk/infrastructure/repositories/in_memory_coupon_repository.py 생성: InMemoryCouponRepository 구현 (인터페이스 먼저 확정 후 구현)",
+        "tests/test_coupon.py 작성: redeem 상태전이 및 CouponExpiredError·CouponAlreadyUsedError·CouponUsageLimitExceededError 등 예외 7종 커버"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1",
+      "task_id": "3"
+    },
+    {
+      "action": "IssueCouponUseCase·ApplyCouponUseCase 구현 및 apply_coupon.py 교체",
+      "verification": "pytest tests/test_use_cases.py -k coupon -v",
+      "step": [
+        "kiosk/application/use_cases/issue_coupon.py 생성: IssueCouponUseCase (경계 원시 타입 파라미터, CouponDTO 반환)",
+        "kiosk/application/use_cases/apply_coupon.py 교체: ApplyCouponUseCase 재구현 (coupon_repo.save() 버그 수정, 도메인 예외 전파)",
+        "validate_discount.py 로직을 Coupon.is_usable()로 흡수 후 validate_discount.py 파일 삭제 및 관련 import 정리"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        2
+      ],
+      "priority": "P1",
+      "task_id": "4"
+    },
+    {
+      "action": "SplitPayment Aggregate 및 SplitPaymentRepository 구현",
+      "verification": "pytest tests/test_split_payment.py -v",
+      "step": [
+        "kiosk/domain/models/split_payment.py 생성: PaymentAttemptStatus enum (PENDING/AUTHORIZED/CAPTURED/FAILED, 기존 PaymentStatus와 분리), PaymentAttempt 엔티티 정의",
+        "SplitPayment Aggregate 구현: target_amount: Money 주입(Order 참조 제거), sum(attempts) ≤ target_amount 불변식, finalize() 완납 전이",
+        "kiosk/domain/repositories/split_payment_repository.py 생성: SplitPaymentRepository ABC (save/find_by_id/find_by_order_id)",
+        "kiosk/infrastructure/repositories/in_memory_split_payment_repository.py 생성: InMemorySplitPaymentRepository 구현"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1",
+      "task_id": "5"
+    },
+    {
+      "action": "CreateSplitPaymentUseCase·AddPaymentAttemptUseCase 구현",
+      "verification": "pytest tests/test_use_cases.py -k split_payment -v",
+      "step": [
+        "kiosk/application/use_cases/create_split_payment.py 생성: CreateSplitPaymentUseCase (CONFIRMED Order 상태 검증, target_amount=order.total_amount, SplitPaymentDTO 반환)",
+        "AddPaymentAttemptResult 전용 DTO 정의 (attempt_id, authorized_amount, remaining_amount, is_fully_paid 필드)",
+        "kiosk/application/use_cases/add_payment_attempt.py 생성: AddPaymentAttemptUseCase (attempt 추가, AddPaymentAttemptResult 반환)"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        4
+      ],
+      "priority": "P1",
+      "task_id": "6"
+    },
+    {
+      "action": "OrderPaid·CouponRedeemed 도메인 이벤트 정의 및 Aggregate 방출 연결",
+      "verification": "pytest tests/test_coupon.py tests/test_split_payment.py -v",
+      "step": [
+        "kiosk/domain/events/payment_events.py 신설: OrderPaid(order_id, split_payment_id, total_amount, from_split_payment() 팩토리), CouponRedeemed(coupon_id, order_id, discount_amount, from_coupon() 팩토리) 정의",
+        "SplitPayment.finalize()에 OrderPaid 이벤트 _pending_events 방출 구현",
+        "Coupon.redeem()에 CouponRedeemed 이벤트 _pending_events 방출 구현"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        2,
+        4
+      ],
+      "priority": "P1",
+      "task_id": "7"
+    },
+    {
+      "action": "ReceiptRecord Projection 및 이벤트 핸들러 구현",
+      "verification": "pytest tests/test_receipt_handler.py -v",
+      "step": [
+        "kiosk/domain/models/receipt.py 생성: ReceiptRecord frozen dataclass (Projection — Order+Payments+AppliedDiscounts 스냅샷)",
+        "kiosk/domain/repositories/receipt_repository.py 생성: ReceiptRepository ABC (save/find_by_order_id), kiosk/infrastructure/repositories/in_memory_receipt_repository.py 구현",
+        "kiosk/application/events/order_settlement_handler.py 생성: OrderSettlementHandler (OrderPaid 수신 → Order.mark_paid() 호출 + ReceiptRecord 생성·저장)",
+        "kiosk/application/events/logging_audit_handler.py 생성: LoggingAuditHandler (CouponRedeemed 수신 → WARNING 로그)"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        6
+      ],
+      "priority": "P1",
+      "task_id": "8"
+    },
+    {
+      "action": "테스트 픽스처 보강 및 신규 테스트 파일 완성",
+      "verification": "pytest tests/test_coupon.py tests/test_split_payment.py tests/test_discount_rule.py tests/test_receipt_handler.py -v",
+      "step": [
+        "tests/conftest.py에 fake_dispatcher, fake_clock(FakeClock fixed datetime), coupon_repo, split_payment_repo, receipt_repo 픽스처 추가",
+        "valid_coupon, expired_coupon, exhausted_coupon 픽스처 추가 (FakeClock 기반 만료 시나리오)",
+        "test_coupon.py 완성 (redeem 상태전이 + 예외 7종), test_split_payment.py 완성 (attempt 추가·완납 판정)",
+        "test_discount_rule.py 완성 (FixedDiscountRule·PercentageDiscountRule 다형성·DiscountChain 정률→정액 순서), test_receipt_handler.py 완성 (OrderPaid→ReceiptRecord 생성 검증)"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        1,
+        3,
+        5,
+        7
+      ],
+      "priority": "P1",
+      "task_id": "9"
+    },
+    {
+      "action": "CLI 의존성 연결 및 E2E 통합 테스트 구현",
+      "verification": "pytest tests/test_coupon_integration.py -v",
+      "step": [
+        "kiosk/cli.py build_dependencies() dict에 coupon_repo, split_payment_repo, receipt_repo 신규 repo 추가",
+        "issue_coupon, apply_coupon, create_split_payment, add_payment_attempt UseCase 인스턴스 생성 및 dict 등록",
+        "EventDispatcher에 OrderSettlementHandler, LoggingAuditHandler 핸들러 등록",
+        "tests/test_coupon_integration.py E2E 통합 테스트 작성: 할인 적용→쿠폰 사용→분할결제→영수증 생성 전체 흐름 검증"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        3,
+        5,
+        7,
+        8
+      ],
+      "priority": "P1",
+      "task_id": "10"
+    },
+    {
+      "action": "deprecated Discount 엔티티 및 관련 파일 삭제·import 정리",
+      "verification": "pytest tests/ -v",
+      "step": [
+        "Coupon/CouponRepository 전환 완료 확인 후 kiosk/domain/models/discount.py 삭제",
+        "kiosk/domain/repositories/discount_repository.py 및 InMemoryDiscountRepository 파일 삭제",
+        "전체 코드베이스에서 삭제된 Discount 관련 import 참조 제거 및 정리",
+        "pytest tests/ -v 실행하여 전체 테스트 스위트 통과 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        9
+      ],
+      "priority": "P2",
+      "task_id": "11"
+    }
+  ]
+}

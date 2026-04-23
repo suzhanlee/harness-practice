@@ -1,0 +1,242 @@
+{
+  "run_id": "20260422-173354-2fa9",
+  "goal": "멤버십·포인트 적립 및 등급별 혜택 시스템 — Member 애그리거트 및 할인 정책 파이프라인 확장",
+  "tasks": [
+    {
+      "task_id": "1",
+      "action": "split_payment.py OrderPaid dict stub을 실제 VO로 교체",
+      "verification": "pytest tests/ -v -k 'split_payment or payment' --tb=short",
+      "step": [
+        "kiosk/domain/models/split_payment.py:91의 {'type': 'OrderPaid', ...} dict를 실제 OrderPaid VO 인스턴스로 교체",
+        "OrderPaid VO가 domain/events/ 에 없으면 order_events.py에 OrderPaid(order_id, split_payment_id, total_amount) 정의",
+        "기존 split_payment 테스트가 모두 통과하는지 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "done",
+      "dependencies": [],
+      "priority": "P0"
+    },
+    {
+      "task_id": "2",
+      "action": "도메인 이벤트 기반 클래스 및 Member 이벤트 정의",
+      "verification": "pytest tests/test_member_events.py -v",
+      "step": [
+        "kiosk/domain/events/__init__.py, base.py 생성 — DomainEvent(ABC, event_id: UUID, occurred_at: datetime) + from_xxx 팩토리 패턴",
+        "kiosk/domain/events/member_events.py 생성 — PointsEarned(member_id, order_id, points_earned: Money, new_balance: Money), GradeUpgraded(member_id, old_grade, new_grade) 정의",
+        "kiosk/domain/events/dispatcher.py 생성 — EventDispatcher(ABC) with dispatch(event: DomainEvent) 추상 메서드",
+        "tests/test_member_events.py 생성 — PointsEarned/GradeUpgraded 인스턴스 생성, 필드 검증 테스트"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [],
+      "priority": "P0",
+      "branch": "feat/task-2-domain-event-base-member"
+    },
+    {
+      "task_id": "3",
+      "action": "Member VOs, MemberGrade enum, InsufficientPointBalanceError 추가 및 AbstractDiscountRule priority ClassVar 수정",
+      "verification": "pytest tests/test_value_objects.py -v",
+      "step": [
+        "kiosk/domain/models/value_objects.py에 MemberId(UUID VO), PointAccountId(UUID VO) 추가 — 기존 UserId 패턴 동일",
+        "MemberGrade enum(NORMAL/SILVER/GOLD/VIP) 추가 — earn_rate classmethod(NORMAL=1%, SILVER=2%, GOLD=3%, VIP=5%) 포함",
+        "InsufficientPointBalanceError(ValueError) 추가",
+        "AbstractDiscountRule에 from __future__ import annotations + from typing import ClassVar 추가 후 priority: ClassVar[int] = 999 추가 (dataclass 필드 아님)"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [],
+      "priority": "P0",
+      "branch": "feat/task-3-member-vos-member-grade-enum"
+    },
+    {
+      "task_id": "4",
+      "action": "PointAccount 엔티티 및 Member 애그리거트 루트 구현",
+      "verification": "pytest tests/test_member.py -v",
+      "step": [
+        "kiosk/domain/models/member.py 생성 — PointAccount @dataclass(account_id, balance, grade, total_paid, version=0, _pending_events) + earn/redeem/promote_if_eligible 메서드 구현",
+        "Member @dataclass(member_id, user_id, name, email, point_account, _pending_events) 구현 — apply_payment(order_id, paid_amount, now), spend_points(amount), pull_domain_events() 공개 API",
+        "PointAccount.earn()에 PointsEarned 이벤트 append, promote_if_eligible()에 GradeUpgraded 이벤트 append",
+        "PointAccount.redeem()에 balance < amount 시 InsufficientPointBalanceError 발생, Member 외부에서 point_account 직접 쓰기 불가 구조 확인",
+        "tests/test_member.py 생성 — apply_payment 후 PointsEarned 이벤트 발행 확인, pull_domain_events drain 확인, spend_points 잔액 부족 에러 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "done",
+      "branch": "feat/task-4-pointaccount-member-aggregate",
+      "dependencies": [
+        1,
+        2
+      ],
+      "priority": "P1"
+    },
+    {
+      "task_id": "5",
+      "action": "MemberRepository 인터페이스, InMemoryMemberRepository, InProcessDispatcher 구현",
+      "verification": "pytest tests/test_member_repository.py -v",
+      "step": [
+        "kiosk/domain/repositories/member_repository.py 생성 — MemberRepository(ABC) with save/find_by_id(MemberId)/find_by_user_id(UserId) 추상 메서드",
+        "kiosk/infrastructure/repositories/in_memory_member_repository.py 생성 — dict key=MemberId, InMemoryOrderRepository 패턴 동일",
+        "kiosk/infrastructure/events/__init__.py + in_process_dispatcher.py 생성 — InProcessDispatcher(EventDispatcher) dict 라우팅 구현",
+        "tests/test_member_repository.py 생성 — save/find_by_id/find_by_user_id 기본 동작 테스트"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        1,
+        2,
+        3
+      ],
+      "priority": "P1"
+    },
+    {
+      "task_id": "6",
+      "action": "신규 할인 규칙 3종 구현 (VipGradeDiscountRule, CouponDiscountRule, PointRedemptionRule)",
+      "verification": "pytest tests/test_discount_rules.py -v",
+      "step": [
+        "kiosk/domain/models/discount_rules.py 생성 — VipGradeDiscountRule(priority ClassVar=10, grade: MemberGrade, PercentageDiscountRule 위임) 구현",
+        "CouponDiscountRule(priority ClassVar=20, coupon 객체 위임 wrapper) 구현",
+        "PointRedemptionRule(priority ClassVar=30, points_to_redeem: Money) 구현 — FixedDiscountRule 위임",
+        "tests/test_discount_rules.py 생성 — 각 규칙의 calculate() 결과 및 priority 값 검증"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [
+        2
+      ],
+      "priority": "P1",
+      "branch": "feat/task-6-vipgrade-coupon-pointredemption"
+    },
+    {
+      "task_id": "7",
+      "action": "Order 할인 파이프라인 수정 (priority 정렬, stacking cap, 중복 검증)",
+      "verification": "pytest tests/test_order.py tests/test_cart_integration.py -v",
+      "step": [
+        "kiosk/domain/models/order.py의 apply_discount()에 (a) 값 동치 중복 체크('이미 적용된 할인 규칙입니다.'), (b) priority 중복 체크 추가",
+        "get_total_after_discounts() 메서드를 sorted(self._discounts, key=lambda r: r.priority) 순회로 변경",
+        "stacking cap 적용: 각 스텝에서 remaining < 0이면 0으로 고정 (음수 방지)",
+        "기존 테스트(test_order.py, test_cart_integration.py) 전체 통과 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        2,
+        5
+      ],
+      "priority": "P1"
+    },
+    {
+      "task_id": "8",
+      "action": "RegisterMemberUseCase 구현",
+      "verification": "pytest tests/test_register_member.py -v",
+      "step": [
+        "kiosk/application/use_cases/register_member.py 생성 — RegisterMemberUseCase(member_repo) 구현",
+        "execute(user_id: str, name: str, email: str) → MemberDTO — MemberId/PointAccountId 생성, PointAccount(NORMAL 등급, 잔액 0) 초기화, Member 저장",
+        "MemberDTO(member_id, user_id, name, email, grade, point_balance) 정의",
+        "tests/test_register_member.py 생성 — 정상 등록, 동일 user_id 중복 등록 시나리오 테스트"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        3,
+        4
+      ],
+      "priority": "P1"
+    },
+    {
+      "task_id": "9",
+      "action": "ProcessPaymentUseCase 멤버십 오케스트레이션 확장 및 Receipt discount_breakdown 추가",
+      "verification": "pytest tests/test_use_cases.py tests/test_process_payment.py -v",
+      "step": [
+        "kiosk/application/use_cases/process_payment.py에 member_repo: MemberRepository, dispatcher: EventDispatcher 의존성 추가; execute()에 member_id: Optional[str], now: datetime = None 파라미터 추가",
+        "execute() 내 member_id 분기: member_repo.find_by_user_id → member.apply_payment(order_id, get_total_after_discounts(), now) → member_repo.save → pull_domain_events → dispatcher.dispatch",
+        "Receipt/ReceiptDTO에 discount_breakdown: list[dict] 필드 추가 — 적용된 규칙별 rule_name/discount_amount 포함",
+        "기존 ProcessPaymentUseCase 테스트가 member_id=None으로 호환되는지 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [
+        0,
+        3,
+        4,
+        6
+      ],
+      "priority": "P1",
+      "branch": "feat/task-9-process-payment-membership"
+    },
+    {
+      "task_id": "10",
+      "action": "conftest 픽스처 추가 및 Member 도메인 단위 테스트 작성",
+      "verification": "pytest tests/test_member.py tests/test_point_account.py -v",
+      "step": [
+        "tests/conftest.py에 member_repo(InMemoryMemberRepository), regular_member(NORMAL 등급, 잔액 0), vip_member(VIP 등급, 잔액 5000) 픽스처 추가",
+        "member_with_points(amount) 팩토리 픽스처 추가 — amount 파라미터로 잔액 설정",
+        "tests/test_point_account.py 생성 — earn() 후 balance 증가 확인, redeem() 잔액 부족 에러 메시지 고정 확인, promote_if_eligible() 등급 변경 조건 테스트",
+        "tests/test_member.py 보완 — now 파라미터 주입으로 결정적 테스트, GradeUpgraded 이벤트 순서(PointsEarned → GradeUpgraded) 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        3,
+        4
+      ],
+      "priority": "P1"
+    },
+    {
+      "task_id": "11",
+      "action": "할인 파이프라인 통합 테스트 작성",
+      "verification": "pytest tests/test_discount_pipeline.py -v",
+      "step": [
+        "tests/test_discount_pipeline.py 생성 — VipGradeDiscountRule+CouponDiscountRule+PointRedemptionRule 3종 복합 적용 후 get_total_after_discounts() 결과 검증",
+        "priority 중복 ValueError 테스트, 값 동치 중복 ValueError 테스트",
+        "stacking cap 테스트 — 할인 합계 > 주문 총액이면 0원 고정",
+        "게스트 주문(VipGradeDiscountRule/PointRedemptionRule 미적용, CouponDiscountRule만 적용) 분기 테스트"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [
+        5,
+        6
+      ],
+      "priority": "P1",
+      "branch": "feat/task-11-discount-pipeline-integration-test"
+    },
+    {
+      "task_id": "12",
+      "action": "E2E 멤버십 플로우 통합 테스트 작성",
+      "verification": "pytest tests/test_membership_flow_integration.py -v",
+      "step": [
+        "tests/test_membership_flow_integration.py 생성 — '회원가입 → 주문 → VIP 할인+쿠폰+포인트 적용 → 결제 → 포인트 적립 → 등급 업그레이드' 전체 흐름 테스트",
+        "PointsEarned 이벤트가 ReceiptProjectionHandler에 전달되어 receipt에 포인트 적립 내역이 반영되는지 확인",
+        "포인트 이중 사용 시나리오 — 잔액보다 많은 포인트 차감 시 InsufficientPointBalanceError 발생 확인",
+        "비회원 결제 — member_id=None 시 포인트 적립/VIP 할인 없이 정상 완료 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "implementing",
+      "dependencies": [
+        7,
+        8,
+        9
+      ],
+      "priority": "P2",
+      "branch": "feat/task-12-e2e-membership-flow"
+    },
+    {
+      "task_id": "13",
+      "action": "CLI build_dependencies() 와이어링 업데이트",
+      "verification": "pytest tests/ -v --tb=short",
+      "step": [
+        "kiosk/cli.py의 build_dependencies()에 InMemoryMemberRepository, InProcessDispatcher 인스턴스 생성 추가",
+        "RegisterMemberUseCase(member_repo) 생성 및 반환 dict에 추가",
+        "ProcessPaymentUseCase 생성자에 member_repo, dispatcher 인자 추가",
+        "전체 테스트 스위트(pytest tests/) 실행하여 기존 테스트 무회귀 확인"
+      ],
+      "status": "end",
+      "pipeline_stage": "not_started",
+      "dependencies": [
+        4,
+        7,
+        8
+      ],
+      "priority": "P2"
+    }
+  ]
+}

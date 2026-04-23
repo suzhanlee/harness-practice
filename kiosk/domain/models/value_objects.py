@@ -1,6 +1,9 @@
 from __future__ import annotations
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import Enum
+from typing import ClassVar
 from uuid import UUID, uuid4
 from datetime import datetime
 
@@ -155,3 +158,153 @@ class OrderStateSnapshot:
     total_amount: Money
     timestamp: datetime
     item_count: int
+
+
+@dataclass(frozen=True)
+class CouponId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> CouponId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> CouponId:
+        return cls(UUID(value))
+
+
+@dataclass(frozen=True)
+class SplitPaymentId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> SplitPaymentId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> SplitPaymentId:
+        return cls(UUID(value))
+
+
+@dataclass(frozen=True)
+class MemberId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> MemberId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> MemberId:
+        return cls(UUID(value))
+
+
+@dataclass(frozen=True)
+class PointAccountId:
+    value: UUID
+
+    @classmethod
+    def generate(cls) -> PointAccountId:
+        return cls(uuid4())
+
+    @classmethod
+    def from_str(cls, value: str) -> PointAccountId:
+        return cls(UUID(value))
+
+
+class MemberGrade(Enum):
+    NORMAL = "NORMAL"
+    SILVER = "SILVER"
+    GOLD = "GOLD"
+    VIP = "VIP"
+
+    @classmethod
+    def earn_rate(cls, grade: MemberGrade) -> Decimal:
+        rates = {
+            cls.NORMAL: Decimal("1"),
+            cls.SILVER: Decimal("2"),
+            cls.GOLD: Decimal("3"),
+            cls.VIP: Decimal("5"),
+        }
+        return rates[grade]
+
+
+class InsufficientPointBalanceError(ValueError):
+    """Raised when attempting to redeem more points than available balance."""
+
+
+class _DiscountRuleMeta(ABCMeta):
+    """Metaclass combining ABCMeta with frozen dataclass support."""
+
+
+@dataclass(frozen=True)
+class AbstractDiscountRule(metaclass=_DiscountRuleMeta):
+    """Abstract base for all discount rules. Subclasses must implement calculate()."""
+
+    priority: ClassVar[int] = 999
+
+    @abstractmethod
+    def calculate(self, original: Money) -> Money:
+        """Return the discount amount (not the discounted price) for the given original price."""
+
+
+@dataclass(frozen=True)
+class FixedDiscountRule(AbstractDiscountRule):
+    """Deducts a fixed monetary amount."""
+    amount: Money
+
+    def calculate(self, original: Money) -> Money:
+        if self.amount.currency != original.currency:
+            raise ValueError("통화가 다릅니다.")
+        discount = min(self.amount.amount, original.amount)
+        return Money(discount, original.currency)
+
+
+@dataclass(frozen=True)
+class PercentageDiscountRule(AbstractDiscountRule):
+    """Deducts a percentage of the original price."""
+    percent: Decimal
+
+    def __post_init__(self):
+        if self.percent < Decimal("0") or self.percent > Decimal("100"):
+            raise ValueError("퍼센트는 0 이상 100 이하여야 합니다.")
+
+    def calculate(self, original: Money) -> Money:
+        discount_amount = original.amount * (self.percent / Decimal("100"))
+        return Money(discount_amount, original.currency)
+
+
+@dataclass(frozen=True)
+class DiscountCalculation:
+    """Value Object representing the result of applying a discount chain."""
+    original: Money
+    discount: Money
+    final: Money
+
+    @classmethod
+    def compute(cls, original: Money, discount: Money) -> DiscountCalculation:
+        if original.currency != discount.currency:
+            raise ValueError("통화가 다릅니다.")
+        raw_final = original.amount - discount.amount
+        final_amount = max(Decimal("0"), raw_final)
+        return cls(
+            original=original,
+            discount=discount,
+            final=Money(final_amount, original.currency),
+        )
+
+
+@dataclass(frozen=True)
+class DiscountChain:
+    """Applies a sequence of DiscountRules in order. Caller is responsible for ordering."""
+    policies: tuple
+
+    def apply(self, original: Money) -> DiscountCalculation:
+        remaining = original
+        total_discount = Money(Decimal("0"), original.currency)
+        for policy in self.policies:
+            discount = policy.calculate(remaining)
+            total_discount = total_discount + discount
+            discounted_amount = max(Decimal("0"), remaining.amount - discount.amount)
+            remaining = Money(discounted_amount, original.currency)
+        return DiscountCalculation.compute(original, total_discount)

@@ -1,0 +1,55 @@
+{
+  "run_id": "20260421-050742-5284",
+  "goal": "도메인 이벤트 기반 주방 디스플레이 시스템 (Kitchen Display System) — Order.confirm() → OrderConfirmed 이벤트 → 주방 디스플레이 수신 → 조리 완료 → 고객 알림까지 전체 흐름 완성",
+  "tasks": [
+    {
+      "action": "도메인 레이어 이벤트·KitchenTicket 구현",
+      "verification": "pytest tests/test_domain_events.py tests/test_kitchen_ticket.py -v",
+      "step": [
+        "kiosk/domain/events/base.py에 DomainEvent frozen dataclass(event_id: UUID, occurred_at: datetime) 작성",
+        "kiosk/domain/events/order_events.py에 OrderConfirmed(order_id, items, total_amount, occurred_at) 작성",
+        "kiosk/domain/models/kitchen_ticket.py에 KitchenTicket 루트 엔티티(TicketStatus: RECEIVED→COOKING→READY→SERVED, start_cooking()/mark_ready()/mark_served() 가드 메서드) 작성",
+        "kiosk/domain/repositories/kitchen_ticket_repository.py에 KitchenTicketRepository 추상 인터페이스(save, find_by_id, find_by_status) 작성 및 infrastructure/repositories/in_memory_kitchen_ticket_repository.py 구현",
+        "kiosk/domain/models/order.py에 _pending_events 필드(init=False, repr=False) + pull_domain_events() + confirm() 말미 OrderConfirmed append 추가 — 기존 테스트 회귀 없음 확인"
+      ],
+      "status": "end",
+      "dependencies": [],
+      "priority": "P0",
+      "task_id": "1"
+    },
+    {
+      "action": "Application 레이어 EventDispatcher·핸들러·UseCase 구현",
+      "verification": "pytest tests/test_event_dispatcher.py tests/test_confirm_order_use_case.py tests/test_mark_item_prepared.py -v",
+      "step": [
+        "kiosk/application/events/dispatcher.py에 EventDispatcher(register(event_type, handler), dispatch(events)) ~25줄 정적 dict 라우팅 작성",
+        "kiosk/domain/repositories/notification_repository.py에 NotificationRepository 추상 인터페이스 + infrastructure/repositories/in_memory_notification_repository.py 구현",
+        "kiosk/application/event_handlers/kitchen_order_handler.py(OrderConfirmed → KitchenTicket 생성 저장) + customer_notification_handler.py(TicketReady → Notification 기록) 작성",
+        "kiosk/application/use_cases/confirm_order.py 신규 작성 — order.confirm() → order_repo.save() → pull_domain_events() → dispatcher.dispatch() 패턴",
+        "kiosk/application/use_cases/mark_item_prepared.py 신규 작성 — ticket.start_cooking()/mark_ready() 상태 전이 + kitchen_ticket_repo.save()"
+      ],
+      "status": "end",
+      "dependencies": [
+        0
+      ],
+      "priority": "P1",
+      "task_id": "2"
+    },
+    {
+      "action": "CLI 주방 모드·고객 알림 조회 + end-to-end 통합 테스트 구현",
+      "verification": "pytest tests/test_kitchen_flow_integration.py -v",
+      "step": [
+        "infrastructure/events/fake_dispatcher.py에 FakeDispatcher(received 리스트 축적, dispatch() 오버라이드) 테스트용 구현",
+        "kiosk/cli.py build_dependencies()에 EventDispatcher, 핸들러 2개, ConfirmOrderUseCase, MarkItemPreparedUseCase, notification_repo 와이어링 추가",
+        "kiosk/cli.py에 주방 모드 분기(kds list/cook/ready 명령) + 고객 알림 조회 메뉴 추가",
+        "tests/test_kitchen_flow_integration.py에 end-to-end 시나리오 작성: 주문 확정 → KitchenTicket RECEIVED 검증 → start_cooking → mark_ready → Notification READY 검증"
+      ],
+      "status": "end",
+      "dependencies": [
+        0,
+        1
+      ],
+      "priority": "P1",
+      "task_id": "3"
+    }
+  ]
+}

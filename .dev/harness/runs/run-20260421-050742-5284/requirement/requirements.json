@@ -1,0 +1,18 @@
+{
+  "run_id": "20260421-050742-5284",
+  "goal": "도메인 이벤트 기반 주방 디스플레이 시스템 (Kitchen Display System) — Order.confirm() → OrderConfirmed 이벤트 → 주방 디스플레이 수신 → 조리 완료 → 고객 알림까지 전체 흐름 완성",
+  "requirements": [
+    {
+      "index": 1,
+      "content": "도메인 레이어 구현: DomainEvent 추상 클래스(base.py) + OrderConfirmed 이벤트 클래스(order_events.py) 신규 작성. KitchenTicket 독립 루트 엔티티(kitchen_ticket.py, TicketStatus: RECEIVED→COOKING→READY→SERVED 상태 머신 + 불변식 가드) 신규 작성. KitchenTicketRepository 추상 인터페이스(domain/repositories/kitchen_ticket_repository.py) + InMemoryKitchenTicketRepository(infrastructure/repositories/) 구현. Order 애그리게이트에 _pending_events 필드(init=False, repr=False) + pull_domain_events() 메서드 + confirm() 말미 OrderConfirmed append 추가(기존 테스트 회귀 0 유지). (⚠️ past rule: 인터페이스 먼저 정의 후 구현 착수)"
+    },
+    {
+      "index": 2,
+      "content": "Application 레이어 구현: 최소 EventDispatcher(application/events/dispatcher.py, ~25줄, 정적 dict[type, list[handler]] 라우팅) 작성. OrderConfirmed→KitchenTicket 생성 핸들러(application/event_handlers/kitchen_order_handler.py) + TicketReady→Notification 기록 핸들러(application/event_handlers/customer_notification_handler.py) 작성. NotificationRepository 인터페이스(domain/repositories/) + InMemoryNotificationRepository(infrastructure/repositories/) 구현. ConfirmOrderUseCase를 save→pull_domain_events→dispatcher.dispatch() 패턴으로 업데이트. MarkItemPreparedUseCase(application/use_cases/mark_item_prepared.py) 신규 작성. (⚠️ past rule: 신규 repo 메서드 필요 시 인터페이스+인메모리 구현 양쪽에 먼저 추가)"
+    },
+    {
+      "index": 3,
+      "content": "CLI 완성 + 통합 테스트: 주방 모드 CLI(infrastructure/cli/kitchen_display.py, kds list/cook/ready/serve 명령) + 고객 알림 조회 CLI 추가. FakeDispatcher(infrastructure/events/fake_dispatcher.py, received 리스트 축적) 테스트용 구현. test_kitchen_flow_integration.py 작성 — 주문 확정→주방 수신(KitchenTicket RECEIVED)→조리 완료 마킹→고객 알림(Notification READY) end-to-end 시나리오 검증. cli.py build_dependencies()에 dispatcher, 핸들러, 신규 use case 와이어링 추가."
+    }
+  ]
+}

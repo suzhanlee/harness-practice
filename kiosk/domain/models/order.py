@@ -4,8 +4,8 @@ from decimal import Decimal
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
-from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId
-from .discount import Discount
+from .value_objects import OrderId, MenuItemId, Money, DiscountId, OrderStateSnapshot, UserId, AbstractDiscountRule
+from kiosk.domain.events.base import DomainEvent
 
 
 class OrderStatus(Enum):
@@ -51,8 +51,9 @@ class Order:
     items: List[OrderItem] = field(default_factory=list)
     status: OrderStatus = OrderStatus.PENDING
     user_id: Optional[UserId] = None
-    _discounts: List[Discount] = field(default_factory=list, init=False)
+    _discounts: List[AbstractDiscountRule] = field(default_factory=list, init=False)
     history: List[OrderStateSnapshot] = field(default_factory=list, init=False)
+    _pending_events: List[DomainEvent] = field(default_factory=list, init=False, repr=False)
 
     @classmethod
     def create(cls) -> Order:
@@ -97,6 +98,11 @@ class Order:
             raise ValueError(f"항목을 찾을 수 없습니다: {menu_item_id}")
         item.set_quantity(new_quantity)
 
+    def pull_domain_events(self) -> List[DomainEvent]:
+        events = list(self._pending_events)
+        self._pending_events.clear()
+        return events
+
     def confirm(self):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태의 주문만 확인할 수 있습니다.")
@@ -106,6 +112,14 @@ class Order:
             raise ValueError("품절된 메뉴가 포함되어 있습니다.")
         self.status = OrderStatus.CONFIRMED
         self._record_history()
+        from kiosk.domain.events.order_events import OrderConfirmed
+        items_snapshot = [(item.name, item.quantity, item.unit_price) for item in self.items]
+        event = OrderConfirmed.from_order(
+            order_id=self.id,
+            items=items_snapshot,
+            total_amount=self.total_amount,
+        )
+        self._pending_events.append(event)
 
     def mark_paid(self):
         if self.status != OrderStatus.CONFIRMED:
@@ -119,36 +133,29 @@ class Order:
         self.status = OrderStatus.CANCELLED
         self._record_history()
 
-    def apply_discount(self, discount: Discount):
+    def apply_discount(self, rule: AbstractDiscountRule):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태에서만 할인을 적용할 수 있습니다.")
-        existing = next(
-            (d for d in self._discounts if d.code == discount.code),
-            None
-        )
-        if existing:
-            raise ValueError(f"이미 적용된 쿠폰입니다: {discount.code.value}")
-        self._discounts.append(discount)
+        if rule in self._discounts:
+            raise ValueError("이미 적용된 할인 규칙입니다.")
+        if rule.priority != 999 and any(d.priority == rule.priority for d in self._discounts):
+            raise ValueError("동일한 우선순위의 할인 규칙이 이미 적용되어 있습니다.")
+        self._discounts.append(rule)
 
-    def remove_discount(self, discount_id: DiscountId):
+    def remove_discount(self, rule: AbstractDiscountRule):
         if self.status != OrderStatus.PENDING:
             raise ValueError("대기중 상태에서만 할인을 제거할 수 있습니다.")
-        self._discounts = [d for d in self._discounts if d.id != discount_id]
+        self._discounts = [d for d in self._discounts if d != rule]
 
-    def get_discounts(self) -> List[Discount]:
+    def get_discounts(self) -> List[AbstractDiscountRule]:
         return self._discounts.copy()
 
     def get_total_after_discounts(self) -> Money:
         total = self.total_amount
-        for discount in self._discounts:
-            if discount.rule.discount_type == "fixed":
-                total = Money(
-                    max(Decimal("0"), total.amount - discount.rule.value),
-                    total.currency
-                )
-            elif discount.rule.discount_type == "percentage":
-                discount_amount = total.amount * (discount.rule.value / Decimal("100"))
-                total = Money(total.amount - discount_amount, total.currency)
+        for rule in sorted(self._discounts, key=lambda r: r.priority):
+            discount_amount = rule.calculate(total)
+            remaining = total.amount - discount_amount.amount
+            total = Money(max(Decimal("0"), remaining), total.currency)
         return total
 
     @property
