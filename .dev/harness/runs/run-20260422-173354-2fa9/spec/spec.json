@@ -115,7 +115,7 @@
         "stacking cap 적용: 각 스텝에서 remaining < 0이면 0으로 고정 (음수 방지)",
         "기존 테스트(test_order.py, test_cart_integration.py) 전체 통과 확인"
       ],
-      "status": "not_start",
+      "status": "end",
       "pipeline_stage": "not_started",
       "dependencies": [
         2,
@@ -133,7 +133,7 @@
         "MemberDTO(member_id, user_id, name, email, grade, point_balance) 정의",
         "tests/test_register_member.py 생성 — 정상 등록, 동일 user_id 중복 등록 시나리오 테스트"
       ],
-      "status": "not_start",
+      "status": "end",
       "pipeline_stage": "not_started",
       "dependencies": [
         3,
@@ -172,7 +172,7 @@
         "tests/test_point_account.py 생성 — earn() 후 balance 증가 확인, redeem() 잔액 부족 에러 메시지 고정 확인, promote_if_eligible() 등급 변경 조건 테스트",
         "tests/test_member.py 보완 — now 파라미터 주입으로 결정적 테스트, GradeUpgraded 이벤트 순서(PointsEarned → GradeUpgraded) 확인"
       ],
-      "status": "not_start",
+      "status": "end",
       "pipeline_stage": "not_started",
       "dependencies": [
         3,

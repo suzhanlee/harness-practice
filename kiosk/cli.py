@@ -13,7 +13,10 @@ from application.use_cases.order_history_use_cases import GetOrderHistoryUseCase
 from application.use_cases.issue_coupon import IssueCouponUseCase
 from application.use_cases.create_split_payment import CreateSplitPaymentUseCase
 from application.use_cases.add_payment_attempt import AddPaymentAttemptUseCase
+from application.use_cases.register_member import RegisterMemberUseCase
 from infrastructure.repositories.in_memory_menu_item_repository import InMemoryMenuItemRepository
+from infrastructure.repositories.in_memory_member_repository import InMemoryMemberRepository
+from infrastructure.events.in_process_dispatcher import InProcessDispatcher as InProcessEventDispatcher
 from infrastructure.repositories.in_memory_order_repository import InMemoryOrderRepository
 from infrastructure.repositories.in_memory_payment_repository import InMemoryPaymentRepository
 from infrastructure.repositories.in_memory_user_repository import InMemoryUserRepository
@@ -47,13 +50,21 @@ def build_dependencies():
     coupon_repo = InMemoryCouponRepository()
     split_payment_repo = InMemorySplitPaymentRepository()
     receipt_repo = InMemoryReceiptRepository()
+    member_repo = InMemoryMemberRepository()
     domain_service = OrderDomainService()
 
     seed_menu(menu_repo)
 
     get_menu = GetMenuUseCase(menu_repo)
     place_order = PlaceOrderUseCase(menu_repo, order_repo, domain_service)
-    process_payment = ProcessPaymentUseCase(order_repo, payment_repo, domain_service)
+
+    in_process_dispatcher = InProcessEventDispatcher()
+    register_member = RegisterMemberUseCase(member_repo)
+    process_payment = ProcessPaymentUseCase(
+        order_repo, payment_repo, domain_service,
+        member_repo=member_repo,
+        dispatcher=in_process_dispatcher,
+    )
 
     add_to_cart = AddToCartUseCase(order_repo)
     remove_from_cart = RemoveFromCartUseCase(order_repo)
@@ -102,6 +113,8 @@ def build_dependencies():
         'process_payment': process_payment,
         'menu_repo': menu_repo,
         'order_repo': order_repo,
+        'member_repo': member_repo,
+        'register_member': register_member,
         'user_repo': user_repo,
         'coupon_repo': coupon_repo,
         'split_payment_repo': split_payment_repo,
