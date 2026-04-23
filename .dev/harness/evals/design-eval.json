@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "agent": "design-evaluator",
+    "timestamp": "2026-04-23T00:00:00Z",
+    "phase": "evaluation",
+    "schema_version": "1.0"
+  },
+  "scores": {
+    "agent_communication": {
+      "score": 7,
+      "confidence": "high",
+      "subdimensions": {
+        "io_interfaces": 7,
+        "data_flow_clarity": 8,
+        "communication_format": 7,
+        "orchestration_pattern": 9
+      },
+      "evidence_summary": "Skills have YAML frontmatter declaring name/description/allowed-tools, and orchestration is explicit: scripts/mini-stop.sh encodes the full skill chain (mini-harness → interview → council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound) with JSON state passed via state.json. Main weakness: I/O contracts between skills are prose-described in docs/harness.md rather than enforced by schema, and only one validate-tasks agent exists in-repo (rest come from external plugin)."
+    },
+    "context_management": {
+      "score": 6,
+      "confidence": "high",
+      "subdimensions": {
+        "claudemd_structure": 7,
+        "context_scoping": 4,
+        "information_density": 5,
+        "convention_documentation": 8
+      },
+      "evidence_summary": "Root CLAUDE.md is 456 lines — above the 200-line warning threshold, below the 500-line failure threshold. Structure is logical (17 sections, overview → conventions → workflows → references) and conventions are actionable. However there are no module-level CLAUDE.md files despite clearly separated modules (domain/, application/, infrastructure/, kiosk/admin/, tests/admin/). Harness/DDD content is mixed in one file."
+    },
+    "feedback_loop_maturity": {
+      "score": 9,
+      "confidence": "high",
+      "subdimensions": {
+        "improvement_tracking": 9,
+        "learning_from_failures": 10,
+        "iteration_support": 8,
+        "human_in_the_loop": 7
+      },
+      "evidence_summary": "Exceptional feedback architecture. Stop hooks implement a ralph-loop (execute-stop.sh alternates execute ↔ validate-tasks via last_action field, preventing infinite loops) and compound-guard (mini-stop.sh blocks exit while .mini-harness/session/learnings.json has pending entries). 7 learnings already promoted from session to .mini-harness/learnings/*.md — proving the loop closes. mini-specify explicitly re-ingests past learnings before planning. Run-scoped directories (.dev/harness/runs/run-{id}/) preserve history."
+    },
+    "evolvability": {
+      "score": 6,
+      "confidence": "high",
+      "subdimensions": {
+        "component_independence": 7,
+        "interface_stability": 5,
+        "modularity": 7,
+        "extension_documentation": 5
+      },
+      "evidence_summary": "Skills and hooks are genuinely modular — harness-lib.sh centralizes shared helpers and each script reads stdin JSON + writes decision JSON. However, the skill chain order is hardcoded as a switch/case in mini-stop.sh: adding/reordering a skill requires editing the hook. Plugin source path '../../PycharmProjects/harness' is a relative filesystem path outside the repo — fragile for any other machine or contributor. No CONTRIBUTING guide or skill/hook templates exist."
+    }
+  },
+  "findings": [
+    {
+      "severity": "FAIL",
+      "title": "External plugin path is machine-local and non-portable",
+      "file": ".claude/settings.json:63-69",
+      "detail": "enabledPlugins references 'harness-session@harness' sourced from extraKnownMarketplaces.harness.source.path='../../PycharmProjects/harness' — a relative path outside the repo pointing to a user-specific PyCharm directory. Any other machine, CI environment, or contributor cannot resolve this plugin; council/taskify/interview/etc. skills (which are defined there, not in-repo) will silently fail to load.",
+      "recommendation": "Either (a) vendor the harness plugin into this repo under .claude/plugins/harness/, (b) publish it as a git-url marketplace, or (c) at minimum document the required sibling checkout in docs/harness.md with a setup script that verifies the path exists."
+    },
+    {
+      "severity": "WARN",
+      "title": "Skill chain order is hardcoded in hook script",
+      "file": "scripts/mini-stop.sh:24-87",
+      "detail": "The orchestration sequence is expressed as a large case statement with hardcoded next-skill transitions (mini-harness → interview → council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound). Adding a new skill, reordering, or making a branch conditional requires editing shell code. The chain is not data-driven.",
+      "recommendation": "Extract the chain into a declarative config (e.g., .dev/harness/chain.json listing skills and their successors) and have mini-stop.sh read it. This would let new skills be registered without shell edits and make the pipeline visible at a glance."
+    },
+    {
+      "severity": "WARN",
+      "title": "Root CLAUDE.md above 200-line density threshold",
+      "file": "CLAUDE.md:1-456",
+      "detail": "CLAUDE.md is 456 lines covering DDD architecture, testing strategy, adding use cases, repository pattern, DI container, debugging tips, harness workflow, and references. While well-organized, this volume risks Claude skimming over later sections. Harness guidance duplicates docs/harness.md.",
+      "recommendation": "Split by concern: keep CLAUDE.md to ~150 lines focused on project-wide conventions (DDD layering, testing command, naming); move 'Adding a New Use Case' and 'Common Workflows' to a module-level kiosk/application/CLAUDE.md; delete the Harness section (one-line reference to docs/harness.md is enough)."
+    },
+    {
+      "severity": "WARN",
+      "title": "No module-level CLAUDE.md despite clear module boundaries",
+      "file": "kiosk/",
+      "detail": "The project has obvious subsystems (kiosk/domain, kiosk/application, kiosk/infrastructure, kiosk/admin, tests/admin) but all guidance lives in the root CLAUDE.md. Claude must load the full 456-line file even for tasks scoped to a single layer.",
+      "recommendation": "Add kiosk/domain/CLAUDE.md (value-object invariants, Order state machine), kiosk/application/CLAUDE.md (use-case + DTO conventions), tests/CLAUDE.md (fixture and pytest patterns). Each ≤80 lines."
+    },
+    {
+      "severity": "WARN",
+      "title": "Inter-skill data contracts documented in prose only",
+      "file": "docs/harness.md",
+      "detail": "Skill I/O is described narratively ('Input: Goal string', 'Output: interview.json with schema ...'). There is no JSON schema in-repo for state.json, interview.json, requirements.json, or spec.json. A downstream skill has no machine-checkable contract for the data it consumes.",
+      "recommendation": "Add .dev/harness/schemas/ containing JSON Schema for each artifact and validate in mini-pre-tool-use.sh (or a dedicated validation hook) so chain breaks are caught at handoff rather than mid-skill."
+    },
+    {
+      "severity": "WARN",
+      "title": "No extension documentation for adding skills/hooks/agents",
+      "file": "docs/harness.md",
+      "detail": "docs/harness.md describes what each existing skill does but never explains how to add a new one: where to place SKILL.md, what frontmatter is required, how to wire it into mini-stop.sh, or where run-scoped paths should go.",
+      "recommendation": "Add an 'Extending the Harness' section or .claude/skills/TEMPLATE/ with a skeletal SKILL.md and a checklist (register in chain config, declare allowed-tools, document paths expected in state.json)."
+    },
+    {
+      "severity": "WARN",
+      "title": "Single validate-tasks agent file lacks frontmatter",
+      "file": ".claude/agent/validate-tasks.md:1",
+      "detail": "validate-tasks.md has no YAML frontmatter (starts with '# validate-tasks'). The collector flagged hasFrontmatter=false. Allowed tools are listed only in a prose 'Allowed Tools' section at the end. This is inconsistent with all in-repo skills which use frontmatter.",
+      "recommendation": "Convert to standard frontmatter (name, description, allowed-tools, model) so tooling can discover the agent uniformly."
+    },
+    {
+      "severity": "PASS",
+      "title": "Ralph-loop implementation is robust and correctly guarded",
+      "file": "scripts/execute-stop.sh:38-58",
+      "detail": "The last_action field prevents infinite execute↔validate alternation: only flips direction when remaining > 0 and mutates last_action atomically before blocking. Fallback paths (spec missing, not in execute context) cleanly delegate to mini-stop.sh via approve. This is a mature pattern.",
+      "recommendation": "Keep as-is. Consider extracting the pattern into a reusable learning note."
+    },
+    {
+      "severity": "PASS",
+      "title": "Compound-guard closes the learning loop deterministically",
+      "file": "scripts/mini-stop.sh:91-96",
+      "detail": "When session/learnings.json exists, Stop is blocked with a message directing the user to /mini-compound, which promotes entries to .mini-harness/learnings/*.md and deletes the session file. Evidence: 7 permanent learning files already exist, and mini-specify reads them before new work starts.",
+      "recommendation": "Keep. This is a textbook closed feedback loop."
+    },
+    {
+      "severity": "PASS",
+      "title": "Run-scoped artifact directories enable history and concurrency",
+      "file": ".dev/harness/runs/run-20260419-074829-890e/",
+      "detail": "Each /mini-harness invocation creates run-{timestamp}-{hex}/ with subdirs (adr/, interview/, requirement/, sessions/, spec/, state/). State is isolated per run, session pointers resolve state across compact events, and past runs remain inspectable.",
+      "recommendation": "Keep. Consider a simple index file or ls-based retrospective command to browse past runs."
+    },
+    {
+      "severity": "PASS",
+      "title": "Clean separation of concerns across .claude/, .dev/harness/, .mini-harness/",
+      "file": "project root",
+      "detail": ".claude/ holds Claude Code configuration (settings, skills, agents). .dev/harness/ holds run artifacts and evaluations (ephemeral-ish, per-run). .mini-harness/ holds durable project knowledge (learnings/, session/). Responsibilities do not overlap.",
+      "recommendation": "Keep. Document this tri-directory split near the top of docs/harness.md so new contributors understand what goes where."
+    }
+  ],
+  "recommendations": [
+    "Fix plugin portability first: vendor harness-session plugin into the repo or switch to a git-url marketplace — the current relative path makes the harness unusable on any other machine.",
+    "Make the skill chain data-driven: replace the switch/case in mini-stop.sh with a declarative .dev/harness/chain.json that lists skills and next-transitions.",
+    "Split CLAUDE.md: reduce root to ~150 lines of project-wide conventions and introduce kiosk/domain/CLAUDE.md, kiosk/application/CLAUDE.md, tests/CLAUDE.md for scoped context.",
+    "Add JSON Schemas under .dev/harness/schemas/ for state.json, interview.json, requirements.json, spec.json and validate handoffs so chain breaks surface immediately.",
+    "Add an 'Extending the Harness' guide plus a .claude/skills/TEMPLATE/ skeleton so new skills can be added without reverse-engineering existing ones.",
+    "Normalize validate-tasks.md to standard YAML frontmatter for tooling consistency with all other skills."
+  ]
+}

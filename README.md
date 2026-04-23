@@ -261,3 +261,9 @@ tests/                     # Test suite for kiosk (used as harness verification 
 docs/
   harness.md               # Detailed harness skill reference
 ```
+
+<!-- harness-eval-badge:start -->
+![Harness Score](https://img.shields.io/badge/harness-5.9%2F10-red)
+![Harness Grade](https://img.shields.io/badge/grade-D-red)
+![Last Eval](https://img.shields.io/badge/eval-2026--04--23-blue)
+<!-- harness-eval-badge:end -->

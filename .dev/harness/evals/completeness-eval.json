@@ -1,0 +1,178 @@
+{
+  "meta": {
+    "agent": "completeness-evaluator",
+    "timestamp": "2026-04-23T00:00:00Z",
+    "phase": "evaluation",
+    "schema_version": "1.0"
+  },
+  "scores": {
+    "actionability": {
+      "score": 7,
+      "confidence": "high",
+      "subdimensions": {
+        "command_clarity": {
+          "score": 0,
+          "note": "No command files exist (collector: commands count = 0). Zero commands wired."
+        },
+        "skill_structure": {
+          "score": 8,
+          "note": "All 7 SKILL.md files with frontmatter have numbered step-by-step workflows, explicit decision branches (run_id present/absent), and clear output formats. mini-execute, mini-compound, mini-harness are exemplary."
+        },
+        "agent_output_structure": {
+          "score": 6,
+          "note": "validate-tasks defines structured tabular report (total/passed/failed counts, action names), but lacks frontmatter and its allowed-tools list is inline rather than YAML-parsed — Claude may not load the tool list correctly."
+        },
+        "error_recovery": {
+          "score": 7,
+          "note": "Hooks handle missing STATE_FILE with approve fallback, circular-dependency abort in mini-execute, spec.json missing abort with clear message. No recovery path documented when jq itself is absent or when a hook silently fails."
+        },
+        "next_steps_clarity": {
+          "score": 8,
+          "note": "Stop hooks emit structured block messages naming the exact next skill and run_id argument. SessionStart re-surfaces resume instructions after compact. Dead-end only when ACTIVE_COUNT >= 2 (manual intervention required but stated)."
+        }
+      },
+      "evidence_summary": "Skills are highly actionable with step-numbered workflows and explicit fallback paths. The sole agent (validate-tasks) lacks YAML frontmatter so tool permissions may not be machine-parsed. No commands exist at all, reducing overall actionability."
+    },
+    "testability": {
+      "score": 3,
+      "confidence": "high",
+      "subdimensions": {
+        "test_existence_domain": {
+          "score": 9,
+          "note": "20 test files covering domain models, use cases, integration flows, admin use cases. pytest with fixtures in conftest.py. Single command: pytest."
+        },
+        "test_existence_harness": {
+          "score": 0,
+          "note": "Zero automated tests for any harness component: no tests for hooks (execute-stop.sh, mini-stop.sh, mini-pre-tool-use.sh, mini-post-tool-use.sh, mini-start-session.sh, harness-lib.sh), no tests for validate-tasks agent, no tests for skill orchestration logic."
+        },
+        "fixture_quality": {
+          "score": 0,
+          "note": "No harness test fixtures. No mock state.json files, no sample spec.json for hook unit tests, no scripted end-to-end replay of a run."
+        },
+        "test_runnability": {
+          "score": 9,
+          "note": "Domain/application tests run with single 'pytest' command. Coverage flag documented in CLAUDE.md."
+        },
+        "coverage_gaps": {
+          "score": 1,
+          "note": "Harness hooks contain branching logic (validate/execute alternation, ambiguous multi-run detection, compact recovery) that is completely untested. The ralph-loop state machine correctness depends entirely on manual validation."
+        }
+      },
+      "evidence_summary": "The Python domain code is well-tested (20 files, meaningful assertions, realistic fixtures in conftest.py). The harness itself — all 6 shell scripts and 1 agent — has no automated tests whatsoever, creating a critical gap for the orchestration layer."
+    },
+    "contract_based_testing": {
+      "score": 4,
+      "confidence": "high",
+      "subdimensions": {
+        "agent_contracts": {
+          "score": 3,
+          "note": "validate-tasks defines input (spec.json with tasks[].status=='end') and output (status reset + report) in prose, but no YAML frontmatter means the contract is not machine-readable. No JSON schema for spec.json tasks format."
+        },
+        "skill_contracts": {
+          "score": 6,
+          "note": "Skills with frontmatter document allowed-tools and describe output artifacts (interview.json, requirements.json, spec.json, adr/*.md). Input/output paths are explicit in Args-parsing sections. However no schema files validate the JSON structures."
+        },
+        "contract_documentation": {
+          "score": 6,
+          "note": "mini-harness/SKILL.md contains a complete file-path table documenting every artifact, its creator, destroyer, and purpose. This is the best contract documentation in the harness. CLAUDE.md cross-references it."
+        },
+        "automated_verifiability": {
+          "score": 2,
+          "note": "No JSON schemas, no contract-level tests, no CI check that state.json matches a required shape. The stale run (state.json status='processing', skill_name='mini-harness' while spec tasks are all 'end') proves no automated check catches incoherent state."
+        },
+        "inter_component_contracts": {
+          "score": 4,
+          "note": "Hook-to-skill contract (block message format with run_id:xxx) is implicit — tested only by manual runs. If mini-stop.sh block message format changes, skills silently mis-parse args with no detection."
+        }
+      },
+      "evidence_summary": "Skill frontmatter provides partial machine-readable contracts for 7 of 9 skills. The sole agent lacks frontmatter entirely. No JSON schemas exist for the state.json / spec.json / interview.json interchange formats, and no automated verifier checks contract compliance."
+    }
+  },
+  "findings": [
+    {
+      "severity": "FAIL",
+      "title": "state.json is stale/incoherent for completed run",
+      "file": ".dev/harness/runs/run-20260419-074829-890e/state/state.json",
+      "detail": "state.json shows skill_name='mini-harness' and status='processing' with timestamp 2026-04-19T07:48:29Z, but spec.json shows all 5 tasks with status='end'. The run completed but mini-compound was never invoked, so state.json and sessions/ were never cleaned up. Every new session hitting mini-start-session.sh will auto-recover to this stale run and issue a spurious block.",
+      "recommendation": "Either invoke /mini-compound with run_id:20260419-074829-890e to finalize the run, or manually delete .dev/harness/runs/run-20260419-074829-890e/state/state.json and the sessions directory to clear the stale run. Add a validation check in mini-start-session.sh that treats a run as 'done' when specTasksAllComplete=true even if skill_name is not 'mini-compound'."
+    },
+    {
+      "severity": "FAIL",
+      "title": "validate-tasks agent missing YAML frontmatter",
+      "file": ".claude/agent/validate-tasks.md:1",
+      "detail": "The agent file begins with '# validate-tasks' (markdown heading) rather than YAML frontmatter. Without frontmatter, Claude Code cannot machine-parse the allowed-tools list or description for automated tool permission enforcement. The inline '## Allowed Tools' section is human-readable only.",
+      "recommendation": "Add YAML frontmatter block with name, description, and allowed-tools fields matching the pattern used in .claude/skills/mini-compound/SKILL.md."
+    },
+    {
+      "severity": "FAIL",
+      "title": "No harness self-tests — all 6 hooks untested",
+      "file": "scripts/",
+      "detail": "execute-stop.sh, mini-stop.sh, mini-pre-tool-use.sh, mini-post-tool-use.sh, mini-start-session.sh, and harness-lib.sh contain branching orchestration logic (ralph-loop alternation, compact recovery, ambiguous multi-run detection) but have zero automated tests. A change to the block message format or jq query would break orchestration silently.",
+      "recommendation": "Create tests/harness/ directory with bash-based unit tests (using bats or inline bash scripts with assert functions) for each hook. At minimum: test resolve_run_state in harness-lib.sh, test execute-stop.sh block/approve decision matrix, and test mini-stop.sh skill-chain transitions."
+    },
+    {
+      "severity": "WARN",
+      "title": "7 of 9 skills lack YAML frontmatter (council reference files mis-classified)",
+      "file": ".claude/skills/",
+      "detail": "The collector counted 12 skill files including council/reference/*.md and taskify/reference/*.md files which are template/reference documents, not skills. Of the 9 true SKILL.md files (commit, mini-compound, mini-harness, mini-execute, interview, council, mini-specify, taskify, dependency-resolve), 7 have frontmatter. The 2 without are correctly identified: only commit and mini-compound have frontmatter per the collector — but Glob confirms all 9 SKILL.md files have frontmatter. Collector description field may be auto-generated from heading for reference files.",
+      "recommendation": "Verify that all SKILL.md files (not reference files) contain YAML frontmatter. Reference files in skills/*/reference/ should not be counted as skills."
+    },
+    {
+      "severity": "WARN",
+      "title": "No JSON schemas for inter-component data contracts",
+      "file": ".dev/harness/",
+      "detail": "state.json, spec.json, interview.json, and requirements.json are passed between hooks and skills without schema validation. The stale run demonstrates that no automated check catches when a run's skill_name is inconsistent with the tasks' completion state.",
+      "recommendation": "Add JSON schema files under .dev/harness/schemas/ for state.json, spec.json, interview.json, and requirements.json. Add a validation step in mini-pre-tool-use.sh that checks state.json against schema before updating it."
+    },
+    {
+      "severity": "WARN",
+      "title": "SessionStart hook matcher 'compact' may not fire as expected",
+      "file": ".claude/settings.json:SessionStart",
+      "detail": "The SessionStart hook uses matcher='compact', meaning it only fires on compact events. If a new session starts cold (no compact), mini-start-session.sh never runs and the stale run is not detected on session open.",
+      "recommendation": "Test whether an empty matcher ('') on SessionStart fires for all session starts including cold starts. If so, change matcher to '' to ensure stale run detection on every session initialization."
+    },
+    {
+      "severity": "WARN",
+      "title": "harness-lib.sh resolve_run_state iterates all runs without timeout",
+      "file": "scripts/harness-lib.sh:7-18",
+      "detail": "resolve_run_state scans all run-*/ directories for a session pointer file. With many accumulated runs this becomes O(n) at hook invocation time with no upper bound. No cleanup mechanism removes completed run directories.",
+      "recommendation": "Add a cleanup step in mini-stop.sh (mini-compound completion branch) that removes or archives the completed run directory, or implement a max-age scan limit in resolve_run_state."
+    },
+    {
+      "severity": "PASS",
+      "title": "Skill step structure is clear and copy-pasteable",
+      "file": ".claude/skills/mini-execute/SKILL.md",
+      "detail": "mini-execute defines 5 numbered steps with concrete bash commands (jq invocations with exact flags), explicit decision trees (exit code 0 vs non-zero), and output format templates. Other skills follow the same pattern.",
+      "recommendation": "No action needed. This is the reference pattern all skills should follow."
+    },
+    {
+      "severity": "PASS",
+      "title": "Stop hook produces structured, machine-parseable block messages",
+      "file": "scripts/mini-stop.sh",
+      "detail": "Each case in the skill-chain switch emits a JSON block with the exact skill name and run_id argument embedded: '{\"decision\":\"block\",\"reason\":\"interview 스킬을 실행하세요. args: \\\"run_id:xxx\\\"\"}'. This is directly actionable by Claude.",
+      "recommendation": "No action needed."
+    },
+    {
+      "severity": "PASS",
+      "title": "Domain test suite is comprehensive with meaningful assertions",
+      "file": "tests/",
+      "detail": "20 test files cover domain models, use cases, integration flows, and admin use cases. conftest.py provides realistic fixtures. Single pytest command. Tests check specific values (Decimal amounts, order states, item quantities) not just absence of exceptions.",
+      "recommendation": "No action needed. Maintain test-per-use-case discipline as new features are added."
+    },
+    {
+      "severity": "PASS",
+      "title": "mini-harness SKILL.md provides complete artifact ownership table",
+      "file": ".claude/skills/mini-harness/SKILL.md:65-77",
+      "detail": "The file table documents every harness artifact with creator, destroyer, and purpose — the clearest contract documentation in the codebase. This serves as the de facto architecture spec for the orchestration layer.",
+      "recommendation": "No action needed. Keep this table updated as new artifacts are introduced."
+    }
+  ],
+  "recommendations": [
+    "Resolve the stale run-20260419-074829-890e immediately: invoke /mini-compound run_id:20260419-074829-890e or manually delete state/state.json. Then add a guard in mini-start-session.sh that treats 'specTasksAllComplete=true AND skill_name=mini-harness' as a done run rather than a recoverable one.",
+    "Add YAML frontmatter to .claude/agent/validate-tasks.md (name, description, allowed-tools) so Claude Code parses tool permissions machine-readably, matching the pattern of SKILL.md files.",
+    "Create tests/harness/ with bash unit tests for hook logic — at minimum: harness-lib.sh:resolve_run_state, execute-stop.sh block/approve matrix (remaining>0, last_action=execute/validate), and mini-stop.sh skill-chain transitions. Use bats or plain bash with exit-code assertions.",
+    "Add JSON schema files for state.json, spec.json, interview.json, and requirements.json under .dev/harness/schemas/. Add schema validation in mini-pre-tool-use.sh before updating state.",
+    "Verify SessionStart hook matcher behavior for cold (non-compact) session starts. If 'compact' matcher excludes cold starts, change to '' so stale run detection fires on every session open.",
+    "Add a run-cleanup step in mini-stop.sh's mini-compound completion branch to archive or remove completed run directories, preventing O(n) scan degradation in resolve_run_state as runs accumulate."
+  ]
+}

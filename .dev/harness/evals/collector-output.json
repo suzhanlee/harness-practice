@@ -1,0 +1,294 @@
+{
+  "meta": {
+    "agent": "collector",
+    "timestamp": "2026-04-23T00:00:00Z",
+    "phase": "collection",
+    "schema_version": "1.0"
+  },
+  "project": {
+    "name": "compound-practice",
+    "root": "C:/Users/User/compound-practice",
+    "totalFiles": 120,
+    "truncated": false,
+    "techStack": ["Python 3.8+", "pytest", "DDD", "in-memory repositories"],
+    "entryPoint": "kiosk/cli.py",
+    "testFramework": "pytest"
+  },
+  "settings": {
+    "settingsJson": {
+      "path": ".claude/settings.json",
+      "found": true,
+      "env": {
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+      },
+      "hooks": {
+        "PreToolUse": [
+          { "matcher": "Skill", "command": "bash scripts/mini-pre-tool-use.sh" }
+        ],
+        "PostToolUse": [
+          { "matcher": "Skill", "command": "bash scripts/mini-post-tool-use.sh" }
+        ],
+        "Stop": [
+          { "matcher": "", "command": "bash scripts/execute-stop.sh" },
+          { "matcher": "", "command": "bash scripts/mini-stop.sh" }
+        ],
+        "SessionStart": [
+          { "matcher": "compact", "command": "bash scripts/mini-start-session.sh" }
+        ]
+      },
+      "enabledPlugins": {
+        "harness-session@harness": true
+      },
+      "extraKnownMarketplaces": {
+        "harness": {
+          "source": "directory",
+          "path": "../../PycharmProjects/harness"
+        }
+      },
+      "permissions": [],
+      "deny": []
+    },
+    "settingsLocalJson": {
+      "found": false
+    }
+  },
+  "hooks": [
+    {
+      "file": "scripts/execute-stop.sh",
+      "event": "Stop",
+      "executable": true,
+      "lines": 58,
+      "summary": "Stop hook for mini-execute ralph loop orchestration; handles validation-execute alternation and prevents infinite loops via last_action field"
+    },
+    {
+      "file": "scripts/harness-lib.sh",
+      "event": "library",
+      "executable": true,
+      "lines": 28,
+      "summary": "Shared library functions for harness shell scripts"
+    },
+    {
+      "file": "scripts/mini-post-tool-use.sh",
+      "event": "PostToolUse",
+      "executable": true,
+      "lines": 24,
+      "summary": "PostToolUse hook for mini-harness; after mini-harness Skill completes, ensure run state status is processing"
+    },
+    {
+      "file": "scripts/mini-pre-tool-use.sh",
+      "event": "PreToolUse",
+      "executable": true,
+      "lines": 93,
+      "summary": "PreToolUse hook for mini-harness; before any Skill tool call, update run state with current skill and processing status"
+    },
+    {
+      "file": "scripts/mini-start-session.sh",
+      "event": "SessionStart",
+      "executable": true,
+      "lines": 98,
+      "summary": "SessionStart hook; initializes or resumes a harness session state on compact event"
+    },
+    {
+      "file": "scripts/mini-stop.sh",
+      "event": "Stop",
+      "executable": true,
+      "lines": 96,
+      "summary": "Stop hook for mini-harness orchestration + compound guard; orchestrates skill chain via run-scoped state, fallback to original compound guard"
+    }
+  ],
+  "skills": [
+    {
+      "file": ".claude/skills/commit/SKILL.md",
+      "description": "Analyze git changes and create commits grouped by functionality. Use when user asks to commit changes, mentions /commit command, or wants organized commits following project conventions.",
+      "hasFrontmatter": true,
+      "lines": 279,
+      "referenceFiles": [
+        ".claude/skills/commit/references/commit-message-patterns.md (280 lines)",
+        ".claude/skills/commit/references/grouping-strategies.md (347 lines)",
+        ".claude/skills/commit/references/safety-checks.md (398 lines)"
+      ]
+    },
+    {
+      "file": ".claude/skills/mini-compound/SKILL.md",
+      "description": "Use when the user says \"/mini-compound\". Promotes session/learnings.json entries to permanent .mini-harness/learnings/*.md files, then deletes the session file so the Stop hook allows exit.",
+      "hasFrontmatter": true,
+      "lines": 96
+    },
+    {
+      "file": ".claude/skills/council/reference/adr-template.md",
+      "description": "ADR template reference for council skill",
+      "hasFrontmatter": false,
+      "lines": 53
+    },
+    {
+      "file": ".claude/skills/council/reference/opinion-template.md",
+      "description": "Opinion template reference for council skill",
+      "hasFrontmatter": false,
+      "lines": 18
+    },
+    {
+      "file": ".claude/skills/council/reference/rebuttal-template.md",
+      "description": "Rebuttal template reference for council skill",
+      "hasFrontmatter": false,
+      "lines": 17
+    },
+    {
+      "file": ".claude/skills/council/reference/rebuttal-response-template.md",
+      "description": "Rebuttal response template reference for council skill",
+      "hasFrontmatter": false,
+      "lines": 18
+    },
+    {
+      "file": ".claude/skills/council/reference/summary-template.md",
+      "description": "Summary template reference for council skill",
+      "hasFrontmatter": false,
+      "lines": 21
+    },
+    {
+      "file": ".claude/skills/taskify/reference/formats.md",
+      "description": "Taskify output format reference",
+      "hasFrontmatter": false,
+      "lines": 159
+    },
+    {
+      "file": ".claude/skills/taskify/reference/jq-commands.md",
+      "description": "jq command reference for taskify skill",
+      "hasFrontmatter": false,
+      "lines": 107
+    },
+    {
+      "file": ".claude/skills/taskify/reference/templates/requirements-item.md",
+      "description": "Requirements item template for taskify",
+      "hasFrontmatter": false,
+      "lines": 61
+    },
+    {
+      "file": ".claude/skills/taskify/reference/templates/spec-task.md",
+      "description": "Spec task template for taskify",
+      "hasFrontmatter": false,
+      "lines": 51
+    },
+    {
+      "file": ".claude/skills/taskify/reference/templates/verification-cmd.md",
+      "description": "Verification command template for taskify",
+      "hasFrontmatter": false,
+      "lines": 110
+    }
+  ],
+  "agents": [
+    {
+      "file": ".claude/agent/validate-tasks.md",
+      "name": "validate-tasks",
+      "description": "Verification Agent for Ralph Loop — validates tasks marked as 'end' in spec.json actually pass their verification commands; resets failed tasks to 'not_start'",
+      "model": null,
+      "allowedTools": ["Read", "Write", "Bash"],
+      "hasFrontmatter": false,
+      "lines": 56
+    }
+  ],
+  "commands": [],
+  "claudeMdFiles": [
+    {
+      "path": "CLAUDE.md",
+      "lines": 456,
+      "keySections": [
+        "Project Overview",
+        "Quick Start",
+        "DDD Architecture: Layered Design",
+        "Domain Model: Order State Machine",
+        "Value Objects: Immutable Concepts",
+        "Use Cases: Application Services",
+        "Testing Strategy",
+        "Adding a New Use Case",
+        "Repository Pattern",
+        "CLI Entry Point: Dependency Injection Container",
+        "Code Organization & Paths",
+        "Important Constraints",
+        "Architecture Decision Records",
+        "Common Workflows",
+        "Debugging Tips",
+        "Harness & Development Workflow",
+        "References & Further Reading"
+      ]
+    }
+  ],
+  "testFiles": [
+    { "file": "tests/conftest.py", "type": "unit", "lines": 47 },
+    { "file": "tests/test_cart_integration.py", "type": "integration", "lines": 289 },
+    { "file": "tests/test_discount_integration.py", "type": "integration", "lines": 171 },
+    { "file": "tests/test_discount_model.py", "type": "unit", "lines": 50 },
+    { "file": "tests/test_discount_repository.py", "type": "unit", "lines": 57 },
+    { "file": "tests/test_discount_use_cases.py", "type": "unit", "lines": 104 },
+    { "file": "tests/test_domain_service.py", "type": "unit", "lines": 108 },
+    { "file": "tests/test_menu_item.py", "type": "unit", "lines": 78 },
+    { "file": "tests/test_menu_item_discount.py", "type": "unit", "lines": 39 },
+    { "file": "tests/test_order.py", "type": "unit", "lines": 187 },
+    { "file": "tests/test_order_discount.py", "type": "unit", "lines": 123 },
+    { "file": "tests/test_payment.py", "type": "unit", "lines": 58 },
+    { "file": "tests/test_use_cases.py", "type": "unit", "lines": 194 },
+    { "file": "tests/test_user.py", "type": "unit", "lines": 68 },
+    { "file": "tests/test_user_order_integration.py", "type": "integration", "lines": 132 },
+    { "file": "tests/test_value_objects.py", "type": "unit", "lines": 187 },
+    { "file": "tests/admin/test_change_menu_price.py", "type": "unit", "lines": 42 },
+    { "file": "tests/admin/test_manage_menu.py", "type": "unit", "lines": 74 },
+    { "file": "tests/admin/test_mark_menu_unavailable.py", "type": "unit", "lines": 58 },
+    { "file": "tests/admin/test_query_orders.py", "type": "unit", "lines": 58 }
+  ],
+  "pluginConfig": {
+    "found": false,
+    "notes": "No plugin.json at project root or in .claude/. Plugin is referenced as 'harness-session@harness' in settings.json, sourced from external directory '../../PycharmProjects/harness'."
+  },
+  "harnessArtifacts": {
+    "runs": [
+      {
+        "runId": "20260419-074829-890e",
+        "path": ".dev/harness/runs/run-20260419-074829-890e",
+        "goal": "키오스크 관리자 백오피스 — 메뉴 추가/수정/삭제, 가격 변경, 품절 처리, 주문 내역 조회까지 한 번에",
+        "skill": "mini-harness",
+        "status": "processing",
+        "timestamp": "2026-04-19T07:48:29Z",
+        "subdirs": ["adr", "interview", "requirement", "sessions", "spec", "state"],
+        "specTaskCount": 5,
+        "specTasksAllComplete": true,
+        "specTaskStatuses": ["end", "end", "end", "end", "end"]
+      }
+    ],
+    "adrs": [
+      {
+        "file": ".dev/adr/2026-04-19-menuitem-stock-management-ddd.md",
+        "lines": 100
+      }
+    ],
+    "learnings": [
+      { "file": ".mini-harness/learnings/2026-04-14-ddd.md", "lines": 13 },
+      { "file": ".mini-harness/learnings/2026-04-18-decimal-dto-formatting.md", "lines": 16 },
+      { "file": ".mini-harness/learnings/2026-04-18-dependency-injection-dict.md", "lines": 16 },
+      { "file": ".mini-harness/learnings/2026-04-18-frozen-dataclass-mutation.md", "lines": 16 },
+      { "file": ".mini-harness/learnings/2026-04-18-repository-interface-consistency.md", "lines": 16 },
+      { "file": ".mini-harness/learnings/2026-04-19-admin-repository-interface.md", "lines": 13 },
+      { "file": ".mini-harness/learnings/2026-04-19-frozen-dataclass-test.md", "lines": 13 }
+    ],
+    "requirements": {
+      "file": ".dev/requirements/requirements.json",
+      "found": true
+    },
+    "spec": {
+      "file": ".dev/task/spec.json",
+      "found": true
+    },
+    "sessionFiles": []
+  },
+  "counts": {
+    "settings": 1,
+    "hooks": 6,
+    "skills": 12,
+    "agents": 1,
+    "commands": 0,
+    "claudeMdFiles": 1,
+    "testFiles": 20,
+    "learnings": 7,
+    "adrs": 1,
+    "harnessRuns": 1,
+    "hasPluginJson": false
+  }
+}

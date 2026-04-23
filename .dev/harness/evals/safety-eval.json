@@ -1,0 +1,180 @@
+{
+  "meta": {
+    "agent": "safety-evaluator",
+    "timestamp": "2026-04-23T00:00:00Z",
+    "phase": "evaluation",
+    "schema_version": "1.0",
+    "inputs": {
+      "collectorArtifact": ".dev/harness/evals/collector-output.json",
+      "standardEvalReferenced": true
+    }
+  },
+  "scores": {
+    "safety": {
+      "overall": 4,
+      "confidence": "high",
+      "evidenceSummary": "settings.json defines zero permission allowlist and zero deny list; hooks pass JSON fields into shell variables and embed them into shell-quoted output without escaping; SessionStart hook does filesystem writes before any validation. Hook scripts themselves avoid eval/curl-bash, but the overall permission posture is essentially wide-open.",
+      "subdimensions": {
+        "leastPrivilege": {
+          "score": 3,
+          "notes": "settings.json contains NO permissions[] allowlist and NO deny[] list. The single agent (validate-tasks) requests Read+Write+Bash — Write is likely unnecessary since it only mutates spec.json via `jq ... > tmp && mv tmp spec.json` through Bash; the Write tool is effectively redundant with Bash here. No per-skill allowed-tools frontmatter was reported by the collector for mini-* skills, which means they inherit the global (unrestricted) toolset."
+        },
+        "denyList": {
+          "score": 2,
+          "notes": "Empty deny list. No protection against `rm -rf`, `git push --force`, `git reset --hard`, `git clean -fd`, `curl|bash`, `wget|sh`, `eval`, `chmod 777`, `.env` reads, or credential exfiltration paths. On a project with Bash fully enabled this is the single largest safety gap."
+        },
+        "secretPatternCoverage": {
+          "score": 2,
+          "notes": "No secret-detection patterns exist anywhere in the harness. No PreToolUse blocker for Bash, no pattern matching on tool_input for tokens/keys/private keys. Given that SessionStart/Stop/PreTool hooks already inspect tool_input JSON, adding a secret regex gate would be low cost but is absent."
+        },
+        "attackSurface": {
+          "score": 5,
+          "notes": "Hook scripts use `jq -r` extraction and assign to bash variables, then interpolate into JSON output via `printf` and `echo \"{...}\"`. Values like GOAL, RUN_ID, and INTERVIEW_FILE flow from tool_input (user-controlled at /mini-harness invocation) into `echo \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"...$GOAL...\\\"}\"`. A goal containing a double-quote, backslash, or newline would produce malformed JSON that Claude Code parses as the hook output — this is primarily a reliability bug, but with crafted goal text a user could inject additional JSON fields into the hook decision payload (low impact — the hook only returns decision/reason, but still an input-sanitization smell). `mini-stop.sh` runs `ls -t \"$CWD/$ADR_DIR/\"*.md` where ADR_DIR comes from state.json — state.json is locally written, so not an external attack vector, but path traversal would be possible if state were ever populated from untrusted input. No obvious RCE vectors since scripts do not `eval`, source external content, or pipe curl output."
+        },
+        "hookInputValidation": {
+          "score": 3,
+          "notes": "None of the 6 hook scripts validate the structure of the stdin JSON before use. They rely on `jq -r '... // empty'` fallbacks, which prevents null-deref but does not validate types/lengths/charsets. No `set -euo pipefail`, no input length caps, no charset filtering before interpolation into shell strings. `execute-stop.sh` parses `REMAINING` from spec.json as an integer but does not guard against jq emitting a non-numeric value (corrupted spec.json could cause the `-gt` comparison to silently misbehave)."
+        }
+      }
+    },
+    "costEfficiency": {
+      "overall": 7,
+      "confidence": "medium",
+      "evidenceSummary": "No agent or skill specifies opus explicitly (collector shows model=null for validate-tasks), so costs default to the session's ambient model. Tool lists are reasonably minimal. Main inefficiencies: a deeply redundant Stop-hook chain, a verbose 456-line root CLAUDE.md, and skill reference material totaling ~1500 lines across council/taskify that loads on every invocation.",
+      "subdimensions": {
+        "modelSelection": {
+          "score": 9,
+          "notes": "No hardcoded `model: opus` anywhere in the reported components. The single agent has `model: null` (inherits session model). This is a neutral-positive — the harness does not force expensive models. Cannot be penalized without evidence of over-use."
+        },
+        "toolListMinimality": {
+          "score": 7,
+          "notes": "validate-tasks lists Read+Write+Bash but the SKILL body only uses Read + Bash (jq updates happen via Bash). Write is likely dead permission. mini-* skills were not reported to have allowed-tools frontmatter, meaning they inherit the full toolset — this is both a cost and safety issue. Tightening to e.g. Read+Edit+Bash(jq) per skill would reduce incidental tool probing."
+        },
+        "redundancy": {
+          "score": 6,
+          "notes": "The Stop-hook chain invokes 6 discrete skills sequentially (interview → council → mini-specify → taskify → dependency-resolve → mini-execute → mini-compound). Each Stop hook `block` message restarts the model for the next skill — this is 6+ restarts per /mini-harness run, each paying full system-prompt ingestion cost. Several chain steps (mini-specify after taskify after dependency-resolve) appear to do overlapping planning work. Reference material under `.claude/skills/council/reference/` (5 template files) and `.claude/skills/taskify/reference/` (6 files) loads when those skills run; template consolidation would reduce per-invocation overhead."
+        },
+        "tokenEfficiency": {
+          "score": 6,
+          "notes": "Root CLAUDE.md is 456 lines with 17 top-level sections including Debugging Tips, Common Workflows, and Further Reading that are seldom needed during coding turns. This is loaded every session. Hook scripts emit Korean prose in the `reason` field — fine for humans but the model still pays tokens for it on every blocked Stop. Skill SKILL.md files are reasonable in size (commit=279, mini-compound=96), but the commit skill loads three reference files totaling 1025 lines on invocation."
+        }
+      }
+    }
+  },
+  "findings": [
+    {
+      "severity": "FAIL",
+      "title": "Empty permissions allowlist and empty deny list in settings.json",
+      "file": ".claude/settings.json:1-71",
+      "detail": "settings.json has no `permissions` or `deny` keys at all. With Bash unrestricted, there is no blocker for `rm -rf ~`, `git reset --hard origin/main`, `git push --force`, `curl ... | bash`, writes to ~/.ssh, or reading `.env`/credential files. Standard mode already flagged this quantitatively; qualitatively the risk is amplified by the presence of ralph-loop automation (execute-stop.sh) that re-invokes Bash-heavy skills after hook-driven restarts, increasing exposure per session.",
+      "recommendation": "Add a deny list with at minimum: `Bash(rm -rf *)`, `Bash(git push --force*)`, `Bash(git reset --hard*)`, `Bash(git clean -f*)`, `Bash(chmod 777*)`, `Bash(curl * | *sh)`, `Bash(wget * | *sh)`, `Bash(eval *)`, `Read(.env)`, `Read(**/id_rsa)`, `Read(**/.aws/credentials)`. Add a positive `permissions` list scoped to the tools each skill actually uses (Read, Edit, Bash(pytest*), Bash(jq*), Bash(git status), etc.)."
+    },
+    {
+      "severity": "FAIL",
+      "title": "External plugin path does not resolve and is fragile",
+      "file": ".claude/settings.json:63-69",
+      "detail": "`extraKnownMarketplaces.harness.source.path` is `../../PycharmProjects/harness`, resolved relative to the project root. From `C:/Users/User/compound-practice/.claude` that path is `C:/Users/User/PycharmProjects/harness`, which does not exist on this machine (verified via `ls` — returned 'No such file or directory'). The enabled plugin `harness-session@harness` therefore cannot load, meaning any plugin-provided hooks/skills/commands silently fail. This breaks harness determinism and makes the project non-portable to any collaborator.",
+      "recommendation": "Either (a) vendor the harness plugin into `.claude/plugins/harness/` inside this repo, (b) convert the external directory into a published marketplace with an absolute or env-var-based path, or (c) remove the `enabledPlugins.harness-session@harness` entry entirely if the plugin is no longer needed. Document the expected path in CLAUDE.md under a 'Setup' section."
+    },
+    {
+      "severity": "FAIL",
+      "title": "No secret-pattern gate on any hook",
+      "file": "scripts/mini-pre-tool-use.sh:16-91",
+      "detail": "mini-pre-tool-use.sh fires on every Skill invocation and has access to `tool_input` JSON but performs zero inspection of Bash command strings or Read file paths for tokens, API keys, private-key headers, or `.env` access. Since there is also no deny list (see FAIL above), credential leakage via a crafted Bash command (e.g., `cat ~/.aws/credentials | base64`) would pass unchallenged.",
+      "recommendation": "Extend mini-pre-tool-use.sh (or add a dedicated `secret-guard.sh`) to match against a regex bundle: `-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----`, `sk-[A-Za-z0-9]{40,}`, `ghp_[A-Za-z0-9]{36}`, `xox[bpas]-[A-Za-z0-9-]+`, `AKIA[0-9A-Z]{16}`, `AIza[0-9A-Za-z_-]{35}`, plus path patterns `(\\.env|\\.aws/credentials|id_rsa|id_ed25519)`. On match, emit `{\"decision\":\"block\",\"reason\":\"...\"}` and log to `.dev/harness/security.log`."
+    },
+    {
+      "severity": "WARN",
+      "title": "Hook scripts interpolate user-controlled strings into JSON output without escaping",
+      "file": "scripts/mini-stop.sh:28, 41, 52, 58, 64, 70, 76; scripts/execute-stop.sh:48, 53",
+      "detail": "GOAL, RUN_ID, REFINED_GOAL, ADR_FILE, INCOMPLETE are all shell-interpolated into `echo \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"...\\\"}\"`. If any contains a raw double-quote, backslash, or newline, the resulting string is not valid JSON. This is primarily a correctness/DoS issue (a goal like `foo\"bar` would break the Stop hook payload silently), but on paths where the value flows back into another skill's args, it enables a form of second-order argument injection into future skill invocations.",
+      "recommendation": "Replace all `echo \"{...}\"` constructions with `jq -n --arg reason \"...\" '{decision:\"block\", reason:$reason}'`. This is already the pattern used for state.json writes in the same files; extend it to hook stdout. Also add `set -euo pipefail` to the top of every hook script."
+    },
+    {
+      "severity": "WARN",
+      "title": "validate-tasks agent requests Write tool that it does not use",
+      "file": ".claude/agent/validate-tasks.md:52-56",
+      "detail": "The agent's Steps section shows all spec.json mutations happening via `Bash(jq ... > tmp && mv tmp spec.json)`. The Write tool appears in `Allowed Tools` but is not invoked anywhere in the documented flow. Over-granting Write gives the agent freedom to bypass the documented jq-merge pattern and directly overwrite spec.json with arbitrary contents, including accidental truncation if the agent fails mid-serialization.",
+      "recommendation": "Remove `Write` from the agent's allowed tools. Keep `Read` and `Bash` only. If atomic JSON updates become painful, introduce an `Edit` tool grant instead of `Write` so changes are diff-reviewed."
+    },
+    {
+      "severity": "WARN",
+      "title": "mini-* skills lack allowed-tools frontmatter (implicit inheritance)",
+      "file": ".claude/skills/mini-compound/SKILL.md, .claude/skills/mini-execute/SKILL.md, .claude/skills/mini-harness/SKILL.md, etc.",
+      "detail": "Collector reports hasFrontmatter=true for these skills but did not list allowed-tools. Skills without explicit `allowed-tools` inherit the session tool set — which, combined with the empty permissions list, means every skill effectively has full Bash/Write/Read access. For example, mini-compound only needs to move files from `.mini-harness/session/learnings.json` into `.mini-harness/learnings/*.md` — it does not need Bash at all.",
+      "recommendation": "Add `allowed-tools:` frontmatter to each SKILL.md scoped to actual needs. mini-compound: `[Read, Write, Bash(rm*)]`. interview: `[Read, Write, AskUserQuestion]`. taskify: `[Read, Write, Bash(jq*)]`. This doubles as cost optimization since the model sees fewer tool schemas per turn."
+    },
+    {
+      "severity": "WARN",
+      "title": "Stop hooks re-enter skill chain via `block` messages — brittle and costly",
+      "file": "scripts/mini-stop.sh:24-87",
+      "detail": "The orchestration pattern repeatedly returns `{\"decision\":\"block\",\"reason\":\"<next skill> 스킬을 실행하세요\"}` to drive the 7-skill chain. Each block forces a fresh turn where the model must re-read reason, reload the skill's SKILL.md, and re-plan. This is functional but means a single /mini-harness invocation pays 7x system-prompt + CLAUDE.md + SKILL.md ingestion cost. The chain also has no error path: if a skill produces bad output, the Stop hook still blocks onto the next skill.",
+      "recommendation": "Consider consolidating the chain into a single meta-skill that runs the phases internally via Bash subcommands, reserving Stop-hook orchestration for the one true async boundary (validate→execute ralph loop). At minimum, add a failure branch in each case clause: if the expected output artifact (e.g., interview.json, adr/*.md) is missing, emit a distinct `block` reason rather than blindly chaining forward."
+    },
+    {
+      "severity": "WARN",
+      "title": "No `set -euo pipefail` in any hook script",
+      "file": "scripts/mini-pre-tool-use.sh:1, scripts/mini-post-tool-use.sh:1, scripts/execute-stop.sh:1, scripts/mini-stop.sh:1, scripts/mini-start-session.sh:1, scripts/harness-lib.sh:1",
+      "detail": "All six scripts start with `#!/bin/bash` but none enable strict mode. Silent failures are likely — e.g., if `jq` is not installed, `TOOL_NAME=$(echo $INPUT | jq -r '.tool_name')` returns empty and the rest of the script runs with an empty tool name, producing unexpected behavior. Similarly, `mv` failures in the atomic-write pattern are not checked.",
+      "recommendation": "Add `set -euo pipefail` after the shebang in every script. Add a `command -v jq >/dev/null || { echo '{\"decision\":\"approve\"}'; exit 0; }` preflight to gracefully degrade when dependencies are missing."
+    },
+    {
+      "severity": "PASS",
+      "title": "No dangerous command execution patterns inside hooks",
+      "file": "scripts/*.sh",
+      "detail": "Scripts avoid `eval`, `source <(curl ...)`, `xargs`, backticks on user data, and do not write to system paths (/etc, ~/.ssh, /usr/local). All writes target `.dev/harness/runs/` and `.dev/harness/session-recovery.log` under the project root.",
+      "recommendation": "Maintain this discipline. If future hooks need to execute user-supplied commands, wrap them with the same scoped-path convention."
+    },
+    {
+      "severity": "PASS",
+      "title": "Atomic write pattern used consistently for state.json updates",
+      "file": "scripts/mini-pre-tool-use.sh:79-86, scripts/mini-post-tool-use.sh:20-21, scripts/execute-stop.sh:45-46, 51-52, scripts/mini-stop.sh:26-27 and others",
+      "detail": "All state.json mutations use `jq ... > \"${STATE_FILE}.tmp\" && mv \"${STATE_FILE}.tmp\" \"$STATE_FILE\"`. This prevents partial-write corruption on interrupt. Good hygiene.",
+      "recommendation": "Extend the same pattern to stdout JSON emission (see WARN on `echo \"{...}\"` above)."
+    },
+    {
+      "severity": "PASS",
+      "title": "Model selection is cost-neutral — no hardcoded opus",
+      "file": ".claude/agent/validate-tasks.md frontmatter",
+      "detail": "Collector reports model=null for the only agent. No SKILL.md is documented as pinning opus. Default session model drives cost, which keeps the harness portable across pricing tiers.",
+      "recommendation": "If any future agent does need opus (e.g., council for adversarial reasoning), document the rationale inline so it's intentional, not accidental."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Populate settings.json with a deny list covering destructive shell ops, credential reads, and unsafe pipes; add a positive permissions allowlist scoped per skill. This single change closes the largest safety gap.",
+      "dimensions": ["safety"]
+    },
+    {
+      "priority": 2,
+      "action": "Fix or remove the broken external plugin reference `../../PycharmProjects/harness`. Vendor the plugin into the repo, use an absolute path via env var, or delete the enabledPlugins entry.",
+      "dimensions": ["safety", "completeness"]
+    },
+    {
+      "priority": 3,
+      "action": "Add a secret-detection regex gate in mini-pre-tool-use.sh (or a dedicated PreToolUse hook on Bash/Read) that blocks obvious token/key patterns and `.env`/credential paths.",
+      "dimensions": ["safety"]
+    },
+    {
+      "priority": 4,
+      "action": "Replace all `echo \"{\\\"decision\\\"...}\"` hook outputs with `jq -n --arg ... '{...}'`, and add `set -euo pipefail` plus a jq preflight to every hook script.",
+      "dimensions": ["safety", "reliability"]
+    },
+    {
+      "priority": 5,
+      "action": "Add explicit `allowed-tools` frontmatter to every SKILL.md and trim the validate-tasks agent's tool list to drop unused Write access.",
+      "dimensions": ["safety", "costEfficiency"]
+    },
+    {
+      "priority": 6,
+      "action": "Trim root CLAUDE.md — move Debugging Tips, Common Workflows, and Further Reading into `docs/` and reference them via short pointers. Target: reduce root CLAUDE.md from 456 to ~200 lines.",
+      "dimensions": ["costEfficiency"]
+    },
+    {
+      "priority": 7,
+      "action": "Introduce failure branches in mini-stop.sh case clauses: verify expected artifact (interview.json, adr/*.md, spec.json) exists before chaining to the next skill; emit a distinct block reason on missing artifact.",
+      "dimensions": ["reliability", "safety"]
+    }
+  ]
+}
