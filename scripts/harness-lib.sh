@@ -2,7 +2,7 @@
 # harness-lib.sh — 공통 헬퍼 함수 (mini-harness hook 스크립트에서 source)
 
 # resolve_run_state CWD SESSION_ID
-# → 해당 세션의 STATE_FILE 절대 경로를 stdout에 출력
+# → 세션 포인터로 STATE_FILE 절대 경로를 stdout에 출력
 # → 포인터가 없으면 빈 문자열 출력
 resolve_run_state() {
   local cwd="$1"
@@ -13,6 +13,33 @@ resolve_run_state() {
     [[ -f "$run_dir/sessions/$session_id" ]] || continue
     local state_file="$run_dir/state/state.json"
     [[ -f "$state_file" ]] && echo "$state_file" && return 0
+  done
+  echo ""
+}
+
+# resolve_active_state CWD SESSION_ID
+# → 세션 포인터로 먼저 찾고, 없으면 processing 상태인 run을 스캔
+# → STATE_FILE 절대 경로를 stdout에 출력; 없으면 빈 문자열
+resolve_active_state() {
+  local cwd="$1"
+  local session_id="$2"
+  local runs_dir="$cwd/.dev/harness/runs"
+
+  local state_file
+  state_file=$(resolve_run_state "$cwd" "$session_id")
+  if [[ -n "$state_file" ]]; then
+    echo "$state_file"
+    return 0
+  fi
+
+  for candidate in "$runs_dir"/run-*/state/state.json; do
+    [[ -f "$candidate" ]] || continue
+    local status
+    status=$(jq -r '.status // empty' "$candidate" 2>/dev/null)
+    if [[ "$status" == "processing" ]]; then
+      echo "$candidate"
+      return 0
+    fi
   done
   echo ""
 }

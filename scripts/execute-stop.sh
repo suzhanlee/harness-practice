@@ -3,13 +3,20 @@
 # Handles validation-execute alternation and prevents infinite loops via last_action field
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd')
+_RAW_CWD=$(echo "$INPUT" | jq -r '.cwd')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+
+if [[ "${_RAW_CWD:1:1}" == ":" ]]; then
+  _drive="${_RAW_CWD:0:1}"; _rest="${_RAW_CWD:2}"; _rest="${_rest//\\/\/}"
+  CWD="/${_drive,,}${_rest}"
+else
+  CWD="$_RAW_CWD"
+fi
 
 source "$CWD/scripts/harness-lib.sh"
 
 # run state resolve
-STATE_FILE=$(resolve_run_state "$CWD" "$SESSION_ID")
+STATE_FILE=$(resolve_active_state "$CWD" "$SESSION_ID")
 
 # Not in execute context → approve (delegate to mini-stop.sh)
 if [[ -z "$STATE_FILE" || ! -f "$STATE_FILE" ]]; then

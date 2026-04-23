@@ -17,8 +17,6 @@ else
   CWD="$_RAW_CWD"
 fi
 
-RUNS_DIR="$CWD/.dev/harness/runs"
-
 source "$CWD/scripts/harness-lib.sh"
 
 if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
@@ -73,8 +71,8 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
     [[ -n "$SESSION_ID" ]] && touch "$CWD/$RUN_DIR/sessions/${SESSION_ID}"
 
   else
-    # 체인 중 다음 스킬: 세션 포인터로 STATE_FILE resolve
-    STATE_FILE=$(resolve_run_state "$CWD" "$SESSION_ID")
+    # 체인 중 다음 스킬: 세션 포인터 → 폴백 스캔 순으로 STATE_FILE resolve
+    STATE_FILE=$(resolve_active_state "$CWD" "$SESSION_ID")
 
     if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
       # 세션 포인터 갱신 (compact 후 새 session_id로 들어왔을 경우 대비)
@@ -97,7 +95,7 @@ if [[ "$TOOL_NAME" == "Skill" && -n "$SKILL_NAME" ]]; then
           "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
       fi
     fi
-    # STATE_FILE이 없으면 (수동 호출) hook은 아무것도 하지 않음
+    # STATE_FILE이 없으면 (수동 호출 + 활성 run 없음) hook은 아무것도 하지 않음
   fi
 fi
 

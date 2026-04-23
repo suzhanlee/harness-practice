@@ -16,12 +16,10 @@ fi
 
 SESSION_FILE="$CWD/.mini-harness/session/learnings.json"
 
-RUNS_DIR="$CWD/.dev/harness/runs"
-
 source "$CWD/scripts/harness-lib.sh"
 
 # ── run state 파일 resolve ──
-STATE_FILE=$(resolve_run_state "$CWD" "$SESSION_ID")
+STATE_FILE=$(resolve_active_state "$CWD" "$SESSION_ID")
 
 # ── 오케스트레이션 체인 ──
 if [[ -n "$STATE_FILE" && -f "$STATE_FILE" ]]; then
