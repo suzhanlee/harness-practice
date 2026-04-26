@@ -1,0 +1,7 @@
+{
+  "tasks": [
+    { "id": "1", "action": "create domain model", "status": "end" },
+    { "id": "2", "action": "add repository", "status": "end" },
+    { "id": "3", "action": "wire use case", "status": "end" }
+  ]
+}
